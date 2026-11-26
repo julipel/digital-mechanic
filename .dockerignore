@@ -5,6 +5,7 @@
 **/__pycache__
 .pytest_cache
 data/manuals
+**/*.[pP][dD][fF]
 index
 var
 neurodvs_hackathon_mock_*
