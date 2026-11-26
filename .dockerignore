@@ -1,0 +1,11 @@
+.git
+.venv
+.env
+.claude
+**/__pycache__
+.pytest_cache
+data/manuals
+index
+var
+neurodvs_hackathon_mock_*
+PLAN.md

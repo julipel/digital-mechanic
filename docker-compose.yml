@@ -1,0 +1,46 @@
+# Базовый состав: приложение и две заглушки во внутренней сети, порты наружу не публикуются.
+# Локально:  docker compose -f docker-compose.yml -f docker-compose.local.yml up --build
+# На стенде: docker compose -f docker-compose.yml -f docker-compose.server.yml up -d --build
+services:
+  mechanic-web:
+    build: .
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      MOCK_ML_URL: http://mock-ml:8001
+      MOCK_TOIR_URL: http://mock-toir:8002
+    volumes:
+      - ./data:/app/data
+      - ./index:/app/index
+      - ./var:/app/var
+      - ./mocks/data:/app/mocks/data:ro
+    mem_limit: 768m
+    depends_on: [mock-ml, mock-toir]
+    networks: [internal]
+    restart: unless-stopped
+
+  mock-ml:
+    build:
+      context: .
+      dockerfile: docker/mocks.Dockerfile
+    command: ["uvicorn", "mock_ml.app:app", "--host", "0.0.0.0", "--port", "8001"]
+    volumes:
+      - ./mocks/data:/mocks/data:ro
+    mem_limit: 192m
+    networks: [internal]
+    restart: unless-stopped
+
+  mock-toir:
+    build:
+      context: .
+      dockerfile: docker/mocks.Dockerfile
+    command: ["uvicorn", "mock_toir.app:app", "--host", "0.0.0.0", "--port", "8002"]
+    volumes:
+      - ./mocks/data:/mocks/data:ro
+    mem_limit: 192m
+    networks: [internal]
+    restart: unless-stopped
+
+networks:
+  internal: {}

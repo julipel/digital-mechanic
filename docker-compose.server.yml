@@ -1,0 +1,9 @@
+# Стенд: приложение подключается к внешней сети Caddy (имя сети — из PUBLIC_NETWORK).
+services:
+  mechanic-web:
+    networks: [internal, public]
+
+networks:
+  public:
+    external: true
+    name: ${PUBLIC_NETWORK:-deploy_default}

@@ -1,0 +1,22 @@
+# Секреты
+.env
+
+# Руководства, индекс, базы — не публикуются
+data/manuals/
+*.pdf
+index/
+var/
+*.sqlite
+*.sqlite-journal
+
+# Данные парка от организаторов — не публиковать без разрешения
+mocks/data/vehicles.json
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Исходный архив заглушек (копия лежит в mocks/)
+neurodvs_hackathon_mock_*/
