@@ -112,3 +112,12 @@ def test_fleet_trend_never_builds_on_failed_check(fleet, settings):
                 assert not t.built, (v.vehicle_id, s.session_id)
             if t.built:
                 assert t.n_points >= 3 and t.label and t.caveats
+
+
+def test_as_dict_returns_copies_of_points():
+    """get_trend убирает даты из точек для модели — это не должно портить точки для графика."""
+    t = compute_trend([normal("S-1", 0, 0.3), anomaly("S-2", 14, 0.45), anomaly("S-3", 28, 0.6)], CONFIG)
+    view = t.as_dict()
+    for p in view["points"]:
+        p.pop("checked_at")
+    assert all("checked_at" in p for p in t.as_dict()["points"])

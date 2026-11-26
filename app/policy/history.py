@@ -27,7 +27,9 @@ QUALITY_RU = {"good": "хорошее", "warning": "помехи", "bad": "не�
 
 
 def _failed(s) -> bool:
-    return s.status == "check_failed" or s.signal_quality == "bad"
+    """Как в trend и fleet_status: отклонение без anomaly_score тоже непригодно для выводов."""
+    return s.status == "check_failed" or s.signal_quality == "bad" or (
+        s.status == "anomaly" and s.anomaly_score is None)
 
 
 @dataclass(frozen=True)

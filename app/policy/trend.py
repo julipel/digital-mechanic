@@ -77,7 +77,7 @@ class Trend:
             "slope_per_week": self.slope_per_week, "days_to_threshold": self.days_to_threshold,
             "threshold_reached": self.threshold_reached, "horizon_days": self.horizon_days,
             "summary": self.summary, "caveats": list(self.caveats),
-            "points": [p.__dict__ for p in self.points],
+            "points": [dict(p.__dict__) for p in self.points],   # копии: вызывающий может их менять
         }
 
 

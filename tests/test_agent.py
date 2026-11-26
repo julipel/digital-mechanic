@@ -354,6 +354,7 @@ def test_get_trend_tool_returns_code_result(make):
     assert all("checked_at" not in p and isinstance(p["day"], int) for p in reply["points"])  # без дат
     trend = next(e for e in events if e["type"] == "trend")
     assert trend["points"][-1]["session_id"] == "S-0009"
+    assert all("checked_at" in p for p in trend["points"])                # даты для графика не потеряны
 
 
 @pytest.mark.parametrize("vehicle_id,session_id", [("P456AT178", "S-0003"), ("K354KC98", "S-0087")])
