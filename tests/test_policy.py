@@ -214,6 +214,7 @@ def test_unknown_or_other_turn_chunk_dropped():
     "(236.01.01 РК, 145)", "[РЭ 2016: 50]", "стр.50-52", "page 12", "pp. 4-5",
     "См. с. 50", "см. с.50 руководства по ремонту", "страница: 50", "С.50", "p50",
     "Руководство 236.01.01 стр. 9", "по карте дефектации 236.01.01",
+    "см. стр. — 145", "страница – 31", "лист -12",
 ])
 def test_forged_page_reference_removed(forged):
     text, used, dropped = registry(HIT_VALVES).render(f"Проверить зазор {forged}.")

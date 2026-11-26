@@ -6,6 +6,7 @@
 """
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -32,6 +33,17 @@ class Settings(BaseSettings):
     agent_model: str = ""
     embedding_model: str = ""
     vision_model: str = ""
+
+    # Агент: лимиты цикла инструментов (не модель — её выбор только в AGENT_MODEL)
+    # reasoning_effort для Chat Completions; пусто — не передаётся. Некоторые модели принимают
+    # инструменты в Chat Completions только с «none» (ответ провайдера 400 подскажет).
+    agent_reasoning_effort: str | None = None
+    # chat — Chat Completions (любой OpenAI-совместимый провайдер); responses — Responses API OpenAI.
+    agent_api: Literal["chat", "responses"] = "chat"
+    agent_max_tool_rounds: int = 6       # раундов с вызовом инструментов на одно действие механика
+    agent_search_k: int = 5              # фрагментов в выдаче search_manual
+    agent_chunk_chars: int = 2500        # сколько символов фрагмента видит модель
+    agent_history_messages: int = 12     # сколько прошлых реплик диалога передавать модели
 
     # Доступ к интерфейсу и API. Пароль не задан → всё, кроме /health, отвечает 503,
     # если явно не включён AUTH_DISABLED=1 (только для локальной разработки).
@@ -73,7 +85,7 @@ class Settings(BaseSettings):
     def _strip_trailing_slash(cls, value: str) -> str:
         return value.rstrip("/")
 
-    @field_validator("openai_base_url")
+    @field_validator("openai_base_url", "agent_reasoning_effort")
     @classmethod
     def _empty_to_none(cls, value: str | None) -> str | None:
         return value or None

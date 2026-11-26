@@ -5,7 +5,7 @@
 """
 import time
 
-from openai import OpenAI
+from openai import AsyncOpenAI, OpenAI
 
 from app.config import Settings
 from app.storage.events import log_llm_call
@@ -19,6 +19,15 @@ def get_client(settings: Settings) -> OpenAI:
     if settings.openai_api_key is None or not settings.openai_api_key.get_secret_value():
         raise LLMNotConfigured("OPENAI_API_KEY не задан в .env")
     return OpenAI(api_key=settings.openai_api_key.get_secret_value(), base_url=settings.openai_base_url)
+
+
+def get_async_client(settings: Settings) -> AsyncOpenAI:
+    """Асинхронный клиент для агента (стриминг ответа)."""
+    if settings.openai_api_key is None or not settings.openai_api_key.get_secret_value():
+        raise LLMNotConfigured("OPENAI_API_KEY не задан в .env")
+    if not settings.agent_model:
+        raise LLMNotConfigured("AGENT_MODEL не задан в .env")
+    return AsyncOpenAI(api_key=settings.openai_api_key.get_secret_value(), base_url=settings.openai_base_url)
 
 
 def embed(client: OpenAI, settings: Settings, texts: list[str], *, scenario: str, step: str) -> list[list[float]]:
