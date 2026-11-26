@@ -53,6 +53,13 @@ const T = {
   trendNotBuilt: "Оценка тенденции не строится: {reason}",
   trendThreshold: "порог карантина {t}",
   trendFailed: "сбой",
+  tabCheck: "Проверка",
+  tabJournal: "Журнал",
+  journalCsv: "Скачать CSV",
+  journalEmpty: "Записей нет",
+  journalSession: "проверка {id}",
+  journalKinds: { "": "Все записи", check: "Проверки", request: "Запросы результата", question: "Вопросы механика",
+    ticket: "Заявки", warning: "Предупреждения" },
 };
 
 const $ = (id) => document.getElementById(id);
@@ -164,7 +171,52 @@ async function openVehicle(id) {
     };
   }
   show("vehicle");
+  selectTab("check");
   loadTrend();
+}
+
+// --- журнал ТС (B1): ленту собирает сервер (storage/journal), здесь только показываем ----------
+const KIND_ICON = { check: "◉", request: "↻", question: "?", ticket: "▤", warning: "⚠" };
+$("journal-kind").replaceChildren(...Object.entries(T.journalKinds).map(([k, label]) => {
+  const o = document.createElement("option"); o.value = k; o.textContent = label; return o;
+}));
+
+function selectTab(tab) {
+  $("tab-check").hidden = tab !== "check";
+  $("tab-journal").hidden = tab !== "journal";
+  $("tab-btn-check").setAttribute("aria-selected", String(tab === "check"));
+  $("tab-btn-journal").setAttribute("aria-selected", String(tab === "journal"));
+  if (tab === "journal") loadJournal();
+}
+$("tab-btn-check").onclick = () => selectTab("check");
+$("tab-btn-journal").onclick = () => selectTab("journal");
+$("journal-kind").onchange = () => loadJournal();
+
+async function loadJournal() {
+  const v = state.vehicle;
+  if (!v) return;
+  const kind = $("journal-kind").value;
+  const qs = kind ? "?kind=" + encodeURIComponent(kind) : "";
+  const base = "/api/vehicles/" + encodeURIComponent(v.vehicle_id);
+  $("journal-csv").href = base + "/journal.csv" + qs;
+  const res = await api(base + "/journal" + qs);
+  if (state.vehicle !== v) return;                       // пока грузили, открыли другую машину
+  if (!res.ok) { $("journal").replaceChildren(); $("journal-empty").textContent = await errorText(res); $("journal-empty").hidden = false; return; }
+  const { entries } = await res.json();
+  $("journal").replaceChildren(...entries.map((e) => {
+    const li = document.createElement("li");
+    li.className = "j-" + e.kind;
+    const pages = e.pages.map((p) => fmt(T.page, { manual: p.manual, page: p.pdf_page })).join("; ");
+    li.innerHTML = `<span class="j-icon" aria-hidden="true">${esc(KIND_ICON[e.kind] || "•")}</span>`
+      + `<div><div class="j-meta">${esc(when(e.ts))} · ${esc(T.journalKinds[e.kind] || e.kind)}`
+      + (e.session_id ? ` · ${esc(fmt(T.journalSession, { id: e.session_id }))}` : "") + `</div>`
+      + `<div class="j-title">${esc(e.title)}</div>`
+      + (e.details ? `<div class="j-details">${esc(e.details)}</div>` : "")
+      + (pages ? `<div class="j-pages">${esc(pages)}</div>` : "") + `</div>`;
+    return li;
+  }));
+  $("journal-empty").textContent = T.journalEmpty;
+  $("journal-empty").hidden = entries.length > 0;
 }
 
 // --- оценка тенденции (B2): считает сервер (policy/trend), здесь только рисуем ----------------

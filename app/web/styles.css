@@ -126,3 +126,23 @@ dialog::backdrop { background: rgba(0, 0, 0, .6); }
 .trend details { margin-top: 4px; font-size: 14px; color: var(--muted); }
 .trend details ul { margin: 4px 0 0; padding-left: 18px; }
 .trend-caveat { margin: 4px 0 0; font-size: 13px; color: var(--muted); }
+
+/* Вкладки карточки ТС и журнал (B1) */
+.tabs { display: flex; gap: 4px; margin: 12px 0 4px; border-bottom: 1px solid var(--line); }
+.tabs button { flex: 1; padding: 10px 8px; border: 0; border-bottom: 3px solid transparent; background: transparent;
+  font-weight: 600; color: var(--muted); }
+.tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
+.journal-bar { display: flex; gap: 8px; align-items: center; margin: 12px 0; }
+.journal-bar select { flex: 1; min-width: 0; }
+.csv-link { flex: 0 0 auto; padding: 12px; color: var(--accent); font-weight: 600; text-decoration: none; }
+.journal { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.journal li { display: grid; grid-template-columns: 24px 1fr; gap: 8px; padding: 12px; background: var(--card);
+  border-radius: 10px; border-left: 4px solid var(--line); overflow-wrap: anywhere; }
+.journal .j-icon { font-weight: 700; color: var(--muted); text-align: center; }
+.journal .j-meta { font-size: 13px; color: var(--muted); }
+.journal .j-title { font-weight: 600; }
+.journal .j-details, .journal .j-pages { font-size: 14px; }
+.journal .j-pages { color: var(--muted); }
+.journal li.j-warning { border-left-color: #d97706; } .journal li.j-warning .j-icon { color: var(--warn); }
+.journal li.j-ticket { border-left-color: var(--accent); }
+.journal li.j-question { border-left-color: var(--ok); }

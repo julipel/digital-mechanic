@@ -5,6 +5,9 @@
 - GET  /api/vehicles/{id}               — карточка, история проверок (новые сверху), наши заявки;
 - GET  /api/vehicles/{id}/trend?session_id= — оценка тенденции anomaly_score на момент проверки
                                           (policy/trend, без модели) — для графика в карточке;
+- GET  /api/vehicles/{id}/journal?kind= — журнал ТС: проверки и наши действия, новые сверху
+                                          (storage/journal); kind — типы через запятую;
+- GET  /api/vehicles/{id}/journal.csv?kind= — тот же журнал файлом CSV (для Excel);
 - POST /api/diagnose                    — кнопка «Получить результат диагностики»: новый диалог
                                           и ход агента (SSE). Что вызвать — решает агент (F5);
 - POST /api/chat                        — сообщение механика в диалоге (SSE);
@@ -21,7 +24,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Literal
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.agent import messages as msg
@@ -30,7 +33,7 @@ from app.agent.state import Conversation, ConversationStore
 from app.auth import COOKIE_NAME
 from app.config import Settings
 from app.integrations.errors import BadRequest, IntegrationError, NotDelivered, NotFound
-from app.integrations.fleet import Fleet, Vehicle
+from app.integrations.fleet import Fleet, Vehicle, fault_titles
 from app.integrations.ml_client import DiagnosticsService
 from app.integrations.toir_client import TicketService
 from app.policy.tickets import TicketError, cancel_draft, confirm_draft
@@ -38,6 +41,7 @@ from app.policy.trend import vehicle_trend
 from app.retrieval.pages import PageNotFound, RateLimiter, render_page
 from app.retrieval.search import search as default_search
 from app.storage import tickets as ticket_store
+from app.storage.journal import KINDS, journal_csv, vehicle_journal
 from app.storage.events import log_event, request_id_var
 
 # Текст хода для кнопки «Получить результат диагностики». Это просьба механика, а не команда
@@ -154,6 +158,29 @@ def build_router(services: Services) -> APIRouter:
             return vehicle_trend(v, session_id, s.config_dir).as_dict()
         except KeyError:
             raise HTTPException(404, "Проверка не найдена у этой машины") from None
+
+    def journal_entries(vehicle_id: str, kind: str | None) -> tuple[Vehicle, list[dict]]:
+        v = services.fleet().get(vehicle_id)
+        if v is None:
+            raise HTTPException(404, "Машина не найдена")
+        kinds = {k.strip() for k in kind.split(",") if k.strip()} if kind else None
+        if kinds and not kinds <= set(KINDS):
+            raise HTTPException(422, f"Тип записи журнала: {', '.join(KINDS)}")
+        return v, vehicle_journal(s.db_path, v, config_dir=s.config_dir,
+                                  fault_titles=fault_titles(s.fault_types_path), kinds=kinds)
+
+    @router.get("/vehicles/{vehicle_id}/journal")
+    def journal(vehicle_id: str, kind: str | None = None):
+        _, entries = journal_entries(vehicle_id, kind)
+        return {"vehicle_id": vehicle_id, "entries": entries}
+
+    @router.get("/vehicles/{vehicle_id}/journal.csv")
+    def journal_file(vehicle_id: str, kind: str | None = None):
+        v, entries = journal_entries(vehicle_id, kind)
+        body = "﻿" + journal_csv(entries)          # BOM — чтобы Excel открыл кириллицу
+        name = f"journal_{v.vehicle_id}.csv"              # госномер латиницей — безопасное имя файла
+        return Response(body.encode("utf-8"), media_type="text/csv; charset=utf-8",
+                        headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
     def stream(conv: Conversation, text: str, scenario: str) -> StreamingResponse:
         if conv.conversation_id in services.busy:

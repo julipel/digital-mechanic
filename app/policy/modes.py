@@ -27,6 +27,7 @@ GET_DIAGNOSIS = "get_diagnosis"
 SEARCH_MANUAL = "search_manual"
 DRAFT_TICKET = "draft_ticket"
 GET_TREND = "get_trend"
+GET_HISTORY = "get_vehicle_history"
 
 NO_CHECK = "no_check"
 CHECK_FAILED = "check_failed"
@@ -42,15 +43,16 @@ W_LOW_CONFIDENCE = "low_confidence"
 W_INJECTION = "injection_detected"
 W_ML_INCONSISTENT = "ml_inconsistent"
 
-# get_trend (оценка тенденции, B2) — вывод о двигателе по ряду проверок, поэтому его нет
-# при сбое записи (правило 4) и при коде, противоречащем двигателю (значение недостоверно).
+# get_trend (оценка тенденции, B2) и get_vehicle_history (память по ТС, B1) — выводы о двигателе
+# по ряду проверок, поэтому их нет при сбое записи (правило 4) и при коде, противоречащем
+# двигателю (значение недостоверно), и нет до получения результата выбранной проверки.
 _TOOLS = {
     NO_CHECK: (GET_DIAGNOSIS, SEARCH_MANUAL),
     CHECK_FAILED: (SEARCH_MANUAL,),
     ML_INCONSISTENT: (SEARCH_MANUAL,),
-    NORMAL: (SEARCH_MANUAL, GET_TREND),
-    ANOMALY: (SEARCH_MANUAL, GET_TREND, DRAFT_TICKET),
-    ANOMALY_LOW_CONFIDENCE: (SEARCH_MANUAL, GET_TREND, DRAFT_TICKET),
+    NORMAL: (SEARCH_MANUAL, GET_TREND, GET_HISTORY),
+    ANOMALY: (SEARCH_MANUAL, GET_TREND, GET_HISTORY, DRAFT_TICKET),
+    ANOMALY_LOW_CONFIDENCE: (SEARCH_MANUAL, GET_TREND, GET_HISTORY, DRAFT_TICKET),
 }
 
 

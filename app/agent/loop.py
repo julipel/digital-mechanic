@@ -41,6 +41,18 @@ from app.retrieval.search import search as default_search
 from app.storage.events import log_event, log_llm_call, request_id_var
 
 SCENARIOS = ("explain", "question", "ticket")
+# В журнал (events) — только короткие тексты: вопрос механика и первая строка ответа без предупреждений.
+JOURNAL_TEXT_CHARS = 200
+
+
+def _short(answer: str) -> str:
+    """Первая содержательная строка ответа (вердикт) для журнала ТС; строки ⚠ — предупреждения
+    режима, они в журнале отдельными записями."""
+    for line in answer.splitlines():
+        line = line.strip().lstrip("#*-• ").strip()
+        if line and not line.startswith("⚠"):
+            return line[:JOURNAL_TEXT_CHARS] + ("…" if len(line) > JOURNAL_TEXT_CHARS else "")
+    return ""
 
 
 # --- Модель за интерфейсом: в тестах подменяется сценарием без сети --------------------------
@@ -387,8 +399,9 @@ async def _turn(conv: Conversation, user_text: str, deps: AgentDeps, scenario: s
     citations = [{"chunk_id": c.chunk_id, "doc_id": c.doc_id, "manual": c.manual, "pdf_page": c.pdf_page,
                   "label": c.label} for c in renderer.citations.values()]
     log_event(s.db_path, "answer_sent", vehicle_id=conv.vehicle_id, session_id=conv.session_id, data={
-        "scenario": scenario, "chars": len(answer), "mode": conv.mode.mode, "tools": steps,
-        "citations": [{"doc_id": c["doc_id"], "pdf_page": c["pdf_page"]} for c in citations],
+        "scenario": scenario, "question": user_text[:JOURNAL_TEXT_CHARS], "answer_short": _short(answer),
+        "chars": len(answer), "mode": conv.mode.mode, "tools": steps,
+        "citations": [{"doc_id": c["doc_id"], "manual": c["manual"], "pdf_page": c["pdf_page"]} for c in citations],
         "dropped_refs": len(renderer.dropped), "prompt_leak_blocked": renderer.leaked, "llm_failed": failed})
     if not failed:
         conv.history += [{"role": "user", "content": user_text}, {"role": "assistant", "content": answer}]

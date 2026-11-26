@@ -112,7 +112,8 @@ def test_c1_anomaly_answer_with_code_citations(make, settings):
 
     assert model.calls[0]["tools"] == [modes.GET_DIAGNOSIS, modes.SEARCH_MANUAL]
     # после результата get_diagnosis больше не дают, заявка доступна
-    assert model.calls[1]["tools"] == [modes.SEARCH_MANUAL, modes.GET_TREND, modes.DRAFT_TICKET]
+    assert model.calls[1]["tools"] == [modes.SEARCH_MANUAL, modes.GET_TREND, modes.GET_HISTORY,
+                                       modes.DRAFT_TICKET]
     result = done(events)
     assert "[236-3902150-Б РЭ, стр. 50]" in result["text"]
     assert "99" not in result["text"] and "236.01.01" not in result["text"]   # ссылка от модели вырезана
@@ -288,8 +289,8 @@ def test_state_carries_diagnosis_between_turns(make):
     run(conv, deps)
     run(conv, deps, "Можно ли своим ходом перегнать машину на базу?", scenario="question")
     state = model.calls[2]["messages"][1]["content"]
-    assert '"anomaly_type": "F01"' in state and model.calls[2]["tools"] == [modes.SEARCH_MANUAL,
-                                                                            modes.GET_TREND, modes.DRAFT_TICKET]
+    assert '"anomaly_type": "F01"' in state and model.calls[2]["tools"] == [
+        modes.SEARCH_MANUAL, modes.GET_TREND, modes.GET_HISTORY, modes.DRAFT_TICKET]
     assert not any(m["role"] == "tool" for m in model.calls[2]["messages"])   # инструменты прошлых ходов не передаются
 
 
@@ -362,3 +363,48 @@ def test_get_trend_not_offered_when_check_failed_or_inconsistent(make, vehicle_i
     assert modes.GET_TREND not in model.calls[1]["tools"]
     assert "недоступен" in json.loads(model.calls[2]["messages"][-1]["content"])["error"]
     assert not any(e["type"] == "trend" for e in events)
+
+
+# --- B1: память по ТС — повторы и заявки считает код, модель сопоставляет --------------------
+
+def test_get_vehicle_history_tool_returns_code_result(make, settings):
+    conv, deps, model, _ = make("B418HK98", "S-0009", DIAG, [(modes.GET_HISTORY, {})],
+                                "F01 — вторая проверка подряд.")
+    events = run(conv, deps, text="Было ли такое раньше?", scenario="question")
+    reply = json.loads(model.calls[2]["messages"][-1]["content"])
+    assert reply["repeat_count"] == 2 and reply["ticket_for_selected"] is None
+    assert [c["session_id"] for c in reply["checks"]] == ["S-0009", "S-0008", "S-0007"]   # новые сверху
+    assert all("description" not in c for c in reply["checks"])                           # недоверенный текст
+    assert "посмотрел историю машины" in done(events)["tools"]
+
+
+def test_get_vehicle_history_sees_only_checks_up_to_selected(make):
+    conv, deps, model, _ = make("X792BH98", "S-0025", DIAG, [(modes.GET_HISTORY, {})], "Рост.")
+    run(conv, deps, text="История?", scenario="question")
+    reply = json.loads(model.calls[2]["messages"][-1]["content"])
+    assert "S-0026" not in {c["session_id"] for c in reply["checks"]}                    # будущая проверка
+
+
+def test_get_vehicle_history_injection_text_not_passed(make):
+    conv, deps, model, _ = make("T792HO98", "S-0043", DIAG, [(modes.GET_HISTORY, {})], "Ок.")
+    run(conv, deps, text="История?", scenario="question")
+    raw = model.calls[2]["messages"][-1]["content"]
+    assert "description" not in raw and "инструкц" not in raw.lower()
+
+
+@pytest.mark.parametrize("vehicle_id,session_id", [("P456AT178", "S-0003"), ("K354KC98", "S-0087")])
+def test_get_vehicle_history_not_offered_when_check_failed_or_inconsistent(make, vehicle_id, session_id):
+    conv, deps, model, _ = make(vehicle_id, session_id, DIAG, [(modes.GET_HISTORY, {})], "Без истории.")
+    run(conv, deps)
+    assert modes.GET_HISTORY not in model.calls[0]["tools"]                               # до результата — нет
+    assert modes.GET_HISTORY not in model.calls[1]["tools"]
+    assert "недоступен" in json.loads(model.calls[2]["messages"][-1]["content"])["error"]
+
+
+def test_answer_sent_keeps_short_question_and_answer_for_journal(make, settings):
+    conv, deps, _, _ = make("B418HK98", "S-0009", DIAG, "Ехать можно на малой скорости.\nПодробности…")
+    run(conv, deps, text="Можно ли своим ходом?" + "x" * 500, scenario="question")
+    with connect(settings.db_path) as c:
+        data = json.loads(c.execute("SELECT data FROM events WHERE event_type='answer_sent'").fetchone()[0])
+    assert data["question"].startswith("Можно ли своим ходом?") and len(data["question"]) == 200
+    assert data["answer_short"] == "Ехать можно на малой скорости."

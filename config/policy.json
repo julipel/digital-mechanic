@@ -27,6 +27,10 @@
     "threshold_score": 0.8,
     "horizon_days": 90
   },
+  "history": {
+    "_comment": "Память по ТС (B1, app/policy/history.py): сколько последних проверок до выбранной видит агент.",
+    "max_checks": 10
+  },
   "ticket": {
     "part_number_min_len": 5
   }

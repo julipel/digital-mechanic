@@ -29,6 +29,12 @@
         <div class="muted" id="v-model"></div>
         <p class="note warn" id="v-no-manuals" hidden data-t="noManuals"></p>
       </div>
+      <div class="tabs" role="tablist">
+        <button type="button" role="tab" id="tab-btn-check" aria-selected="true" data-t="tabCheck"></button>
+        <button type="button" role="tab" id="tab-btn-journal" aria-selected="false" data-t="tabJournal"></button>
+      </div>
+
+      <div id="tab-check" role="tabpanel">
       <button type="button" class="earlier-btn" id="v-earlier" hidden></button>
 
       <label class="field">
@@ -61,6 +67,17 @@
         <textarea id="message" rows="2" maxlength="2000" data-t-placeholder="askPlaceholder"></textarea>
         <button type="submit" class="primary" data-t="send"></button>
       </form>
+      </div>
+
+      <!-- Журнал ТС (B1): проверки и наши действия по машине, новые сверху -->
+      <div id="tab-journal" role="tabpanel" hidden>
+        <div class="journal-bar">
+          <select id="journal-kind" aria-label="Тип записей"></select>
+          <a id="journal-csv" class="csv-link" download data-t="journalCsv"></a>
+        </div>
+        <ol id="journal" class="journal"></ol>
+        <p id="journal-empty" class="muted" hidden data-t="journalEmpty"></p>
+      </div>
     </section>
   </main>
 
