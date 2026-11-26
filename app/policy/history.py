@@ -6,8 +6,9 @@
 
 Что считается:
 - повтор: сколько проверок подряд, считая выбранную, показывают тот же код неисправности.
-  Сбой записи между ними ряд не прерывает (о двигателе он ничего не говорит), но учитывается
-  в пояснении; нормальная проверка или другой код — прерывают;
+  Сбой записи и код, невозможный для двигателя, между ними ряд не прерывают (о двигателе они
+  ничего не говорят — так же считает compute_urgency), но учитываются в пояснении; нормальная
+  проверка или другой возможный код — прерывают;
 - норма после отклонения: прошлое отклонение, после которого пришла норма (ремонт или ложное
   срабатывание) — рост дальше не тянем (ловушка данных №3);
 - наши заявки по машине из SQLite: по какой проверке, код, приоритет, номер ТОиР.
@@ -77,10 +78,13 @@ def vehicle_history(vehicle, session_id: str, tickets: list[dict], config_dir: P
     observations: list[str] = []
     repeat = 0
     if current.status == "anomaly" and not _failed(current) and current.anomaly_type and applicable(current):
-        failed_between = 0
+        failed_between = inconsistent_between = 0
         for s in reversed(series):
             if _failed(s):
                 failed_between += 1
+                continue
+            if s.anomaly_type and not applicable(s):
+                inconsistent_between += 1
                 continue
             if s.status == "anomaly" and s.anomaly_type == current.anomaly_type:
                 repeat += 1
@@ -88,8 +92,10 @@ def vehicle_history(vehicle, session_id: str, tickets: list[dict], config_dir: P
             break
         if repeat >= 2:
             note = f"{current.anomaly_type} — {repeat}-я проверка подряд с этим отклонением"
-            if failed_between:
-                note += " (между ними был сбой записи)"
+            gaps = (["сбой записи"] if failed_between else []) + (
+                ["недостоверный результат ML"] if inconsistent_between else [])
+            if gaps:
+                note += f" (между ними был {' и '.join(gaps)})"
             observations.append(note + ".")
         elif len(series) == 1:
             observations.append("Это первая проверка машины в истории — сравнить не с чем.")

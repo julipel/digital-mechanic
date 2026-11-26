@@ -124,3 +124,27 @@ def test_api_fleet_status_sorted(client_for):
     k354 = next(v for v in data["vehicles"] if v["vehicle_id"] == "K354KC98")
     assert k354["status"] == "normal"                                    # норма после F12 у дизеля
     assert model.calls == []                                             # модель не участвует
+
+
+def test_inconsistent_check_does_not_break_repeat():
+    """Правило 6 в приоритете: F12 у дизеля недостоверен и не обрывает повтор F04 (заявка и
+    статус берут прошлые проверки одинаково — через previous_checks)."""
+    from app.policy.urgency import compute_urgency, previous_checks
+    v = car(anomaly("S-1", 0, 0.66), anomaly("S-2", 14, 0.9, code="F12"), anomaly("S-3", 28, 0.68),
+            family="yamz-536")
+    prev = previous_checks(v, "S-3", CONFIG)
+    assert [s.session_id for s in prev] == ["S-1"]
+    u = compute_urgency(v.session("S-3"), prev, CONFIG)
+    assert u.level == "high" and any("То же отклонение F04" in r for r in u.reasons)
+    assert vehicle_status(v, CONFIG).urgency == "high"
+    assert previous_checks(v, "S-9", CONFIG) == []
+
+
+def test_history_repeat_agrees_with_urgency_over_inconsistent_check():
+    """Память по ТС и приоритет считают повтор одинаково: F12 у дизеля повтор F04 не обрывает."""
+    from app.policy.history import vehicle_history
+    v = car(anomaly("S-1", 0, 0.66), anomaly("S-2", 14, 0.9, code="F12"), anomaly("S-3", 28, 0.68),
+            family="yamz-536")
+    h = vehicle_history(v, "S-3", [], CONFIG)
+    assert h.repeat_count == 2
+    assert any("2-я проверка подряд" in o and "недостоверный результат ML" in o for o in h.observations)

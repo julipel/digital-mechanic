@@ -25,7 +25,7 @@ from pathlib import Path
 from app.policy.applicability import check_applicability
 from app.policy.settings import load_policy
 from app.policy.trend import RISING, compute_trend
-from app.policy.urgency import LEVEL_RU, LEVELS, compute_urgency
+from app.policy.urgency import LEVEL_RU, LEVELS, compute_urgency, previous_checks
 
 NORMAL, ATTENTION, QUARANTINE = "normal", "attention", "quarantine"
 STATUSES = (NORMAL, ATTENTION, QUARANTINE)
@@ -116,7 +116,7 @@ def vehicle_status(vehicle, config_dir: Path, *, session_id: str | None = None,
     urgency = None
     ticket_id = tickets.get((vehicle.vehicle_id, basis.session_id))
     if basis.status == "anomaly":
-        u = compute_urgency(basis, sessions[:basis_idx], config_dir, titles)
+        u = compute_urgency(basis, previous_checks(vehicle, basis.session_id, config_dir), config_dir, titles)
         urgency = u.level
         to = QUARANTINE if u.level in cfg["quarantine_urgency"] else ATTENTION
         status = _raise(status, to)

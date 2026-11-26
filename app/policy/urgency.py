@@ -9,11 +9,14 @@
    а не повод считать риск меньше.
 Модель приоритет не выбирает: черновик заявки берёт его только отсюда.
 Прошлая проверка `normal` (ремонт или ложное срабатывание) обрывает «повтор» и «рост».
+Прошлые проверки для сравнения берутся через previous_checks: проверка с кодом, невозможным
+для этого двигателя (правило 6), недостоверна и в сравнении не участвует — как сбой записи.
 """
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Protocol
 
+from app.policy.applicability import check_applicability
 from app.policy.settings import load_policy
 
 LEVELS = ("low", "medium", "high")
@@ -84,6 +87,17 @@ def compute_urgency(current: CheckLike, previous: Iterable[CheckLike], config_di
         conf = "нет" if current.confidence is None else f"{current.confidence:.2f}"
         reasons.append(f"Низкая уверенность ML ({conf}): подтвердить ручной проверкой (приоритет не снижен)")
     return UrgencyResult(level=level, reasons=tuple(reasons))
+
+
+def previous_checks(vehicle, session_id: str, config_dir: Path) -> list:
+    """Проверки машины до session_id (по возрастанию времени), с которыми сравнивает
+    compute_urgency: без проверок, чей код невозможен для двигателя (таблица применимости).
+    Неизвестная проверка — пустой список."""
+    current = vehicle.session(session_id)
+    if current is None:
+        return []
+    return [s for s in vehicle.sessions if s.checked_at < current.checked_at
+            and check_applicability(Path(config_dir), vehicle.engine_family, s.anomaly_type).applicable]
 
 
 def _last_valid(previous: Iterable[CheckLike]) -> CheckLike | None:

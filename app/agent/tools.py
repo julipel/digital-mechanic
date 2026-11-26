@@ -30,7 +30,7 @@ from app.policy.sanitize import sanitize_description
 from app.policy.ticket_validator import DraftInput
 from app.policy.tickets import create_draft
 from app.policy.trend import vehicle_trend
-from app.policy.urgency import LEVEL_RU, compute_urgency
+from app.policy.urgency import LEVEL_RU, compute_urgency, previous_checks
 from app.retrieval.search import search as default_search
 from app.storage import tickets as ticket_store
 from app.storage.events import log_event
@@ -243,8 +243,7 @@ def diagnosis_view(checked: CheckedDiagnosis, decision: modes.ModeDecision, sett
     if checked.ml_inconsistent:
         view["ml_inconsistent_reason"] = checked.applicability.reason
     if decision.mode in (modes.ANOMALY, modes.ANOMALY_LOW_CONFIDENCE) and d.anomaly_score is not None:
-        current = vehicle.session(d.session_id)
-        previous = [x for x in vehicle.sessions if current is not None and x.checked_at < current.checked_at]
+        previous = previous_checks(vehicle, d.session_id, settings.config_dir)
         urgency = compute_urgency(d, previous, settings.config_dir, fault_titles(settings.fault_types_path))
         view["urgency"] = {"level": urgency.level, "level_ru": LEVEL_RU[urgency.level],
                            "reasons": list(urgency.reasons)}

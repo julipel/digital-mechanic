@@ -26,7 +26,7 @@ from app.integrations.toir_client import TicketService, submit_ticket
 from app.policy.citations import CitationRegistry
 from app.policy.settings import load_policy
 from app.policy.ticket_validator import DraftInput, validate_draft
-from app.policy.urgency import compute_urgency
+from app.policy.urgency import compute_urgency, previous_checks
 from app.storage import tickets as store
 from app.storage.events import log_event
 
@@ -76,9 +76,7 @@ def create_draft(proposal: DraftInput, checked: CheckedDiagnosis, registry: Cita
                   data={"violations": result.violations, "chunk_ids": proposal.chunk_ids[:20]})
         return DraftOutcome(violations=result.violations)
 
-    current = vehicle.session(sid)
-    previous = [s for s in vehicle.sessions if current is not None and s.checked_at < current.checked_at]
-    urgency = compute_urgency(diagnosis, previous, config_dir, fault_titles)
+    urgency = compute_urgency(diagnosis, previous_checks(vehicle, sid, config_dir), config_dir, fault_titles)
 
     references, seen = [], set()
     for c in result.citations:                       # одна страница документа — одна ссылка
