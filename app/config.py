@@ -39,8 +39,9 @@ class Settings(BaseSettings):
     db_path: Path = Path("var/mechanic.sqlite")
     vehicles_path: Path = Path("mocks/data/vehicles.json")
     fault_types_path: Path = Path("mocks/data/fault_types.json")
+    config_dir: Path = Path("config")  # engines.json, fault_applicability.json
 
-    @field_validator("manuals_dir", "index_dir", "db_path", "vehicles_path", "fault_types_path")
+    @field_validator("manuals_dir", "index_dir", "db_path", "vehicles_path", "fault_types_path", "config_dir")
     @classmethod
     def _resolve_from_root(cls, value: Path) -> Path:
         return value if value.is_absolute() else PROJECT_ROOT / value

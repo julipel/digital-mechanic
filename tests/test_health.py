@@ -1,56 +1,13 @@
 """/health и журнал событий. Заглушки работают в процессе через ASGITransport — сеть не нужна."""
 import json
 import sqlite3
-import sys
 
-import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from app.config import PROJECT_ROOT, Settings
 from app.main import REQUEST_ID_HEADER, create_app
 from app.storage.events import log_event, log_llm_call, request_id_var
-
-MOCKS_DIR = PROJECT_ROOT / "mocks"
-ML_URL = "http://mock-ml.test"
-TOIR_URL = "http://mock-toir.test"
-
-
-class RoutingTransport(httpx.AsyncBaseTransport):
-    """Направляет запрос в нужное ASGI-приложение по хосту."""
-
-    def __init__(self, routes: dict[str, httpx.AsyncBaseTransport]):
-        self.routes = routes
-
-    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
-        transport = self.routes.get(request.url.host)
-        if transport is None:
-            raise httpx.ConnectError("нет маршрута", request=request)
-        return await transport.handle_async_request(request)
-
-
-class DownTransport(httpx.AsyncBaseTransport):
-    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
-        raise httpx.ConnectError("сервис недоступен", request=request)
-
-
-@pytest.fixture
-def settings(tmp_path) -> Settings:
-    return Settings(_env_file=None, mock_ml_url=ML_URL, mock_toir_url=TOIR_URL,
-                    db_path=tmp_path / "test.sqlite")
-
-
-@pytest.fixture
-def mock_transport() -> RoutingTransport:
-    if not (MOCKS_DIR / "data" / "vehicles.json").exists():
-        pytest.skip("нет mocks/data/vehicles.json (не публикуется в git)")
-    sys.path.insert(0, str(MOCKS_DIR))
-    from mock_ml.app import app as ml_app
-    from mock_toir.app import app as toir_app
-    return RoutingTransport({
-        "mock-ml.test": httpx.ASGITransport(app=ml_app),
-        "mock-toir.test": httpx.ASGITransport(app=toir_app),
-    })
+from tests.conftest import DownTransport, RoutingTransport
 
 
 def test_health_ok_when_both_mocks_up(settings, mock_transport):
