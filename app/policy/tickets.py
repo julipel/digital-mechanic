@@ -7,6 +7,11 @@ create_draft — то, что вызывает инструмент агента
 confirm_draft — то, что вызывает кнопка «Отправить в ТОиР»: отправляет ровно тот черновик,
 который видел механик (совпадают id и хэш), один раз на проверку. Модель этот путь
 не вызывает: у агента нет такого инструмента.
+
+Статусы черновика: draft → sending → sent. Переход в sending атомарный (UPDATE ... WHERE
+status = 'draft'), поэтому «Отмена» во время отправки не проходит, а две отправки одного
+черновика не начинаются. Заявка точно не создана → обратно в draft (можно повторить);
+исход неизвестен → unknown (ни отмены, ни повтора — сверить с ТОиР).
 """
 import hashlib
 import json
@@ -114,10 +119,15 @@ async def confirm_draft(draft_id: str, shown_hash: str, service: TicketService, 
                   data={"draft_id": draft_id, "violations": [message], "stage": "confirm"})
         raise TicketError(message)
 
-    if row["status"] == "cancelled":
-        reject("Черновик отменён")
-    if row["status"] == "sent":
-        reject("Этот черновик уже отправлен")
+    def reject_by_status(status: str):
+        reject({"cancelled": "Черновик отменён", "sent": "Этот черновик уже отправлен",
+                "sending": "Этот черновик уже отправляется",
+                "draft": "Предыдущая отправка этого черновика не прошла — заявка не создана, попросите подготовить её заново",
+                "unknown": "Этот черновик уже отправлялся, ответ ТОиР не получен — сверьте с ТОиР"}
+               .get(status, "Черновик нельзя отправить"))
+
+    if row["status"] != "draft":
+        reject_by_status(row["status"])
     # Хэш, показанный механику, должен совпасть и с сохранённым, и с пересчитанным по
     # содержимому: отправляется ровно то, что механик видел на экране.
     if shown_hash != row["content_hash"] or content_hash(row["payload"]) != row["content_hash"]:
@@ -125,35 +135,61 @@ async def confirm_draft(draft_id: str, shown_hash: str, service: TicketService, 
     ticket = TicketRequest.model_validate(row["payload"])
     if (ticket.vehicle_id, ticket.session_id) != (vid, sid):
         reject("Черновик повреждён: машина или проверка не совпадают")
-    if not store.reserve_ticket(db_path, vid, sid, draft_id):
+    # Атомарно забираем черновик в отправку: параллельная «Отмена» или второе нажатие не пройдут.
+    if not store.set_draft_status(db_path, draft_id, "sending", only_from="draft"):
+        reject_by_status((store.get_draft(db_path, draft_id) or {}).get("status", ""))
+    # До запроса в ТОиР любой сбой (в том числе SQLite «database is locked») возвращает черновик
+    # в draft и снимает резерв: заявка ещё точно не отправлялась, черновик не должен застрять в sending.
+    reserved = False
+    try:
+        reserved = store.reserve_ticket(db_path, vid, sid, draft_id)
+        if reserved:
+            log_event(db_path, "ticket_confirmed", vehicle_id=vid, session_id=sid,
+                      data={"draft_id": draft_id, "content_hash": row["content_hash"][:16]})
+    except BaseException:
+        if reserved:
+            store.release_ticket(db_path, vid, sid)
+        store.set_draft_status(db_path, draft_id, "draft", only_from="sending")
+        raise
+    if not reserved:
+        store.set_draft_status(db_path, draft_id, "draft", only_from="sending")
         existing = store.get_ticket(db_path, vid, sid) or {}
+        if existing.get("status") == "unknown":
+            reject("По этой проверке уже отправлялась заявка, ответ ТОиР не получен — сверьте с ТОиР")
         reject("По этой проверке заявка уже создана"
                + (f": {existing['ticket_id']}" if existing.get("ticket_id") else " или отправляется"))
 
-    log_event(db_path, "ticket_confirmed", vehicle_id=vid, session_id=sid,
-              data={"draft_id": draft_id, "content_hash": row["content_hash"][:16]})
+    def not_created():                                   # заявка точно не создана — можно повторить
+        store.release_ticket(db_path, vid, sid)
+        store.set_draft_status(db_path, draft_id, "draft", only_from="sending")
+
+    def outcome_unknown():
+        store.mark_ticket_unknown(db_path, vid, sid)
+        store.set_draft_status(db_path, draft_id, "unknown", only_from="sending")
+
     try:
         ticket_id = await submit_ticket(service, ticket, db_path)
     except (NotDelivered, NotFound, BadRequest) as exc:
-        store.release_ticket(db_path, vid, sid)          # заявка точно не создана — можно повторить
+        not_created()
         raise exc
     except ServiceUnavailable as exc:
         # Сервис сам ответил ошибкой — заявка не создана. 502/504 приходят от прокси:
         # до ТОиР запрос мог дойти, исход неизвестен.
         if exc.status_code is not None and exc.status_code not in (502, 504):
-            store.release_ticket(db_path, vid, sid)
+            not_created()
             raise
-        store.mark_ticket_unknown(db_path, vid, sid)
+        outcome_unknown()
         raise TicketError("ТОиР не ответил — заявка могла быть создана. Проверьте в ТОиР, "
                           "повторная отправка по этой проверке заблокирована") from exc
     except BaseException:
         # таймаут без ответа, некорректный ответ, отмена запроса — исход неизвестен
-        store.mark_ticket_unknown(db_path, vid, sid)
+        outcome_unknown()
         raise
     store.complete_ticket(db_path, vid, sid, ticket_id)
-    store.set_draft_status(db_path, draft_id, "sent")
+    store.set_draft_status(db_path, draft_id, "sent", only_from="sending")
     return ticket_id
 
 
 def cancel_draft(draft_id: str, *, db_path: Path) -> bool:
-    return store.set_draft_status(db_path, draft_id, "cancelled")
+    """Отмена — только из draft: черновик в отправке, отправленный или с неизвестным исходом не отменяется."""
+    return store.set_draft_status(db_path, draft_id, "cancelled", only_from="draft")

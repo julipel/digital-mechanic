@@ -202,7 +202,7 @@ def build_router(services: Services) -> APIRouter:
     @router.post("/tickets/{draft_id}/cancel")
     def cancel(draft_id: str):
         if not cancel_draft(draft_id, db_path=s.db_path):
-            raise HTTPException(409, "Черновик уже отправлен или отменён")
+            raise HTTPException(409, "Черновик уже отправляется, отправлен или отменён")
         return {"status": "cancelled"}
 
     @router.get("/manuals/{doc_id}/pages/{pdf_page}.png")

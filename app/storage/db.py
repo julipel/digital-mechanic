@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS ticket_drafts (
     payload      TEXT NOT NULL,
     content_hash TEXT NOT NULL,
     extra        TEXT NOT NULL DEFAULT '{}',
-    status       TEXT NOT NULL DEFAULT 'draft'   -- draft | cancelled | sent
+    status       TEXT NOT NULL DEFAULT 'draft'   -- draft | sending | sent | cancelled | unknown
 );
 CREATE INDEX IF NOT EXISTS idx_drafts_session ON ticket_drafts(vehicle_id, session_id);
 

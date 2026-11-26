@@ -532,3 +532,83 @@ def test_policy_does_not_import_llm_client():
             "print(','.join(bad))")
     out = subprocess.run([sys.executable, "-c", code], cwd=PROJECT_ROOT, capture_output=True, text=True, check=True)
     assert out.stdout.strip() == ""
+
+
+def test_cancel_during_sending_is_refused(settings):
+    """«Отмена», нажатая пока черновик уходит в ТОиР, не проходит: статус не станет «отменён»
+    при созданной заявке."""
+    draft = make_draft(settings).draft
+    toir = FakeToir(delay=0.05)
+
+    async def confirm_and_cancel():
+        task = asyncio.create_task(confirm_draft(draft.draft_id, draft.content_hash, toir, db_path=settings.db_path))
+        await asyncio.sleep(0.01)                       # отправка началась, ответа ТОиР ещё нет
+        cancelled = cancel_draft(draft.draft_id, db_path=settings.db_path)
+        return cancelled, await task
+
+    cancelled, ticket_id = asyncio.run(confirm_and_cancel())
+    assert not cancelled
+    assert ticket_id == "TKT-0001"
+    assert store.get_draft(settings.db_path, draft.draft_id)["status"] == "sent"
+
+
+def test_failed_send_returns_draft_and_allows_cancel(settings):
+    """ТОиР точно не создал заявку — черновик снова обычный: его можно отменить."""
+    draft = make_draft(settings).draft
+    with pytest.raises(NotDelivered):
+        asyncio.run(confirm_draft(draft.draft_id, draft.content_hash, FakeToir(fail=NotDelivered),
+                                  db_path=settings.db_path))
+    assert store.get_draft(settings.db_path, draft.draft_id)["status"] == "draft"
+    assert cancel_draft(draft.draft_id, db_path=settings.db_path)
+
+
+def test_unknown_outcome_draft_cannot_be_cancelled(settings):
+    """Исход отправки неизвестен — черновик не отменяется (заявка могла быть создана)."""
+    draft = make_draft(settings).draft
+    with pytest.raises(TicketError):
+        asyncio.run(confirm_draft(draft.draft_id, draft.content_hash, FakeToir(fail=DeliveryUnknown),
+                                  db_path=settings.db_path))
+    assert store.get_draft(settings.db_path, draft.draft_id)["status"] == "unknown"
+    assert not cancel_draft(draft.draft_id, db_path=settings.db_path)
+
+
+def test_same_draft_confirmed_twice_concurrently(settings):
+    """Двойное нажатие / две вкладки: один черновик подтверждён дважды одновременно — заявка одна."""
+    draft = make_draft(settings).draft
+    toir = FakeToir(delay=0.05)
+
+    async def twice():
+        return await asyncio.gather(
+            confirm_draft(draft.draft_id, draft.content_hash, toir, db_path=settings.db_path),
+            confirm_draft(draft.draft_id, draft.content_hash, toir, db_path=settings.db_path),
+            return_exceptions=True)
+
+    results = asyncio.run(twice())
+    assert sum(isinstance(r, str) for r in results) == 1
+    assert sum(isinstance(r, TicketError) for r in results) == 1
+    assert len(toir.sent) == 1
+
+
+def test_losing_draft_returns_to_draft_status(settings):
+    """По проверке заявка уже создана другим черновиком — проигравший не застревает в sending."""
+    d1, d2 = make_draft(settings).draft, make_draft(settings).draft
+    asyncio.run(confirm_draft(d1.draft_id, d1.content_hash, FakeToir(), db_path=settings.db_path))
+    with pytest.raises(TicketError):
+        asyncio.run(confirm_draft(d2.draft_id, d2.content_hash, FakeToir(), db_path=settings.db_path))
+    assert store.get_draft(settings.db_path, d2.draft_id)["status"] == "draft"
+
+
+def test_storage_failure_before_send_does_not_leave_sending(settings, monkeypatch):
+    """SQLite упал при резерве (например, database is locked) — черновик снова draft, ТОиР не вызывался."""
+    import sqlite3
+    draft = make_draft(settings).draft
+    toir = FakeToir()
+
+    def locked(*a, **k):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(store, "reserve_ticket", locked)
+    with pytest.raises(sqlite3.OperationalError):
+        asyncio.run(confirm_draft(draft.draft_id, draft.content_hash, toir, db_path=settings.db_path))
+    assert not toir.sent
+    assert store.get_draft(settings.db_path, draft.draft_id)["status"] == "draft"

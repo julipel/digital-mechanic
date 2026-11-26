@@ -289,9 +289,14 @@ function renderDraft(ev) {
   };
   cancelBtn.onclick = async () => {
     sendBtn.disabled = cancelBtn.disabled = true;
-    const res = await api(`/api/tickets/${encodeURIComponent(ev.draft_id)}/cancel`, { method: "POST" });
-    finish(res.ok ? T.draftCancelled : await errorText(res), res.ok);
-    card.querySelector(".actions").hidden = true;
+    try {
+      const res = await api(`/api/tickets/${encodeURIComponent(ev.draft_id)}/cancel`, { method: "POST" });
+      finish(res.ok ? T.draftCancelled : await errorText(res), res.ok);
+      card.querySelector(".actions").hidden = true;
+    } catch (e) {
+      finish(T.errNetwork, false);
+      sendBtn.disabled = cancelBtn.disabled = false;
+    }
   };
   $("chat").append(card);
   card.scrollIntoView({ block: "nearest" });
