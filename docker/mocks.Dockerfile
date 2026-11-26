@@ -1,5 +1,5 @@
 # Образ для обеих заглушек организаторов; какую запускать — задаёт command в compose.
-FROM python:3.11-slim
+FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /mocks
 COPY mocks/requirements.txt .

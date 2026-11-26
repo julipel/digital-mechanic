@@ -68,9 +68,12 @@ TOOL_SCHEMAS = {
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "conclusion": {"type": "string", "description": "Вывод: что обнаружено и что предполагается"},
+                    "conclusion": {"type": "string",
+                                   "description": "Вывод: что обнаружено и что предполагается. Без ссылок и "
+                                                  "маркеров [chunk_id] — источники только в chunk_ids"},
                     "operations": {"type": "array", "items": {"type": "string"},
-                                   "description": "Работы по руководству, по одной на строку"},
+                                   "description": "Работы по руководству, по одной на строку. Без ссылок и "
+                                                  "маркеров [chunk_id] — источники только в chunk_ids"},
                     "spare_parts": {
                         "type": "array",
                         "items": {

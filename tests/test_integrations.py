@@ -153,3 +153,16 @@ def test_ticket_model_uses_v6_field_names():
         ticket(operations=[])
     with pytest.raises(ValueError):
         TicketRequest(**{**body, "priority": "high"})  # старое имя поля не проходит
+
+
+def test_empty_openai_base_url_in_environment_falls_back_to_official_api(monkeypatch):
+    # docker compose передаёт пустой OPENAI_BASE_URL из .env в окружение; SDK при base_url=None
+    # прочитал бы эту пустую строку и не смог бы подключиться (APIConnectionError).
+    from app.config import OPENAI_DEFAULT_BASE_URL, Settings
+    from app.integrations.llm import get_client
+
+    monkeypatch.setenv("OPENAI_BASE_URL", "")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    settings = Settings(_env_file=None)
+    assert settings.openai_base_url == OPENAI_DEFAULT_BASE_URL
+    assert str(get_client(settings).base_url).startswith(OPENAI_DEFAULT_BASE_URL)

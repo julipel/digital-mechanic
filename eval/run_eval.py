@@ -43,7 +43,10 @@ def last_history() -> dict | None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    # В Windows вывод, перенаправленный в файл, идёт в cp1251 и падает на «→»: пишем всегда в UTF-8.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+    parser =argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--k", type=int, default=5)
     parser.add_argument("--bm25-only", action="store_true", help="без эмбеддингов запроса")
     parser.add_argument("--no-history", action="store_true", help="не дописывать eval/history.csv")

@@ -12,6 +12,7 @@ from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1"
 
 
 class Settings(BaseSettings):
@@ -29,7 +30,9 @@ class Settings(BaseSettings):
     # LLM: OpenAI-совместимый провайдер. Модели не имеют значений по умолчанию —
     # пустая строка означает «не настроено», ошибка будет при первом обращении к модели.
     openai_api_key: SecretStr | None = None
-    openai_base_url: str | None = None
+    # Пустой OPENAI_BASE_URL — официальный API OpenAI. Значение всегда явное: при base_url=None
+    # SDK сам читает OPENAI_BASE_URL из окружения, а docker compose передаёт туда пустую строку из .env.
+    openai_base_url: str = OPENAI_DEFAULT_BASE_URL
     agent_model: str = ""
     embedding_model: str = ""
     vision_model: str = ""
@@ -90,7 +93,12 @@ class Settings(BaseSettings):
     def _strip_trailing_slash(cls, value: str) -> str:
         return value.rstrip("/")
 
-    @field_validator("openai_base_url", "agent_reasoning_effort")
+    @field_validator("openai_base_url", mode="before")
+    @classmethod
+    def _default_base_url(cls, value: str | None) -> str:
+        return (value or "").strip() or OPENAI_DEFAULT_BASE_URL
+
+    @field_validator("agent_reasoning_effort")
     @classmethod
     def _empty_to_none(cls, value: str | None) -> str | None:
         return value or None
