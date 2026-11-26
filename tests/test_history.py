@@ -40,7 +40,7 @@ def test_different_code_breaks_repeat(fleet, settings):
 def test_normal_after_anomaly_noted_with_ticket(fleet, settings):
     h = vehicle_history(fleet.get("X792BH98"), "S-0026", [_ticket("S-0025", code="F06")], settings.config_dir)
     assert h.repeat_count == 0                                    # выбранная — норма, рост не тянем
-    assert any("следующая проверка — норма" in o and "TKT-1" in o for o in h.observations)
+    assert any("следующая пригодная проверка — норма" in o and "TKT-1" in o for o in h.observations)
     assert next(c for c in h.checks if c["session_id"] == "S-0025")["ticket_id"] == "TKT-1"
 
 
@@ -182,3 +182,17 @@ def test_history_has_no_calendar_dates(fleet, settings):
     last = vehicle_history(v, v.sessions[-1].session_id, tickets, settings.config_dir)
     assert any("дн. до выбранной" in o for o in last.observations)
 
+
+def test_normal_after_anomaly_through_failed_recording(fleet, settings):
+    """O710HH78: F04, F04, сбой записи, норма — возврат в норму виден и через сбой."""
+    v = fleet.get("O710HH78")
+    h = vehicle_history(v, v.sessions[-1].session_id, [], settings.config_dir)
+    obs = [o for o in h.observations if "ремонт или ложное срабатывание" in o]
+    assert len(obs) == 1 and "F04" in obs[0] and "между ними был сбой записи" in obs[0]
+
+
+def test_inapplicable_code_not_retold_as_past_anomaly(fleet, settings):
+    """K354KC98: F12 у дизеля, затем норма — «после отклонения F12» не пишем: код недостоверен."""
+    v = fleet.get("K354KC98")
+    h = vehicle_history(v, v.sessions[-1].session_id, [], settings.config_dir)
+    assert not any("F12" in o for o in h.observations)

@@ -114,12 +114,20 @@ def vehicle_history(vehicle, session_id: str, tickets: list[dict], config_dir: P
         else:
             observations.append(f"Предыдущая проверка не показывала {current.anomaly_type} — отклонение новое.")
 
-    for prev, nxt in zip(series, series[1:]):
-        if prev.status == "anomaly" and nxt.status == "normal" and not _failed(nxt):
+    # Норма после отклонения — по соседним ПРИГОДНЫМ проверкам: сбой записи между ними не скрывает
+    # возврат в норму, а недостоверный код (невозможный для двигателя) отклонением не считается.
+    valid = [(i, s) for i, s in enumerate(series) if not _failed(s) and not (s.anomaly_type and not applicable(s))]
+    for (i, prev), (j, nxt) in zip(valid, valid[1:]):
+        if prev.status == "anomaly" and nxt.status == "normal":
             ticket = ticket_by_session.get(prev.session_id)
+            between = series[i + 1:j]
+            gaps = (["сбой записи"] if any(_failed(s) for s in between) else []) + (
+                ["недостоверный результат ML"] if any(not _failed(s) and s.anomaly_type and not applicable(s)
+                                                      for s in between) else [])
+            gap = f" (между ними был {' и '.join(gaps)})" if gaps else ""
             observations.append(
-                f"После отклонения {prev.anomaly_type} ({when(prev)}) следующая проверка — норма "
-                f"({when(nxt)}): ремонт или ложное срабатывание"
+                f"После отклонения {prev.anomaly_type} ({when(prev)}) следующая пригодная проверка — норма "
+                f"({when(nxt)}){gap}: ремонт или ложное срабатывание"
                 + (f"; по тому отклонению была заявка {ticket['ticket_id']}" if ticket else "") + ".")
 
     n_failed = sum(1 for s in series if _failed(s))
