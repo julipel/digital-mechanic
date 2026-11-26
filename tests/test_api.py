@@ -174,3 +174,20 @@ def test_api_requires_login(settings, mock_transport):
     client = TestClient(create_app(s, mock_transport))
     assert client.get("/api/vehicles").status_code == 401
     assert client.get("/api/manuals/yamz-236_re/pages/1.png").status_code == 401
+
+
+def test_earlier_anomaly_shown_when_last_check_is_normal(client_for):
+    """Ловушка данных: после отклонения пришла «норма». Отклонение не должно прятаться за последней проверкой."""
+    client, _, _ = client_for()
+    vehicles = {v["vehicle_id"]: v for v in client.get("/api/vehicles").json()}
+    k354 = vehicles["K354KC98"]
+    assert k354["last_check"]["session_id"] == "S-0088" and k354["last_check"]["status"] == "normal"
+    assert k354["earlier_anomaly"]["session_id"] == "S-0087"
+    assert k354["earlier_anomaly"]["anomaly_type"] == "F12" and k354["earlier_anomaly"]["ticket_id"] is None
+    card = client.get("/api/vehicles/K354KC98").json()
+    assert card["earlier_anomaly"]["session_id"] == "S-0087"
+    # последняя проверка — сама отклонение: отдельной пометки нет, оно и так видно
+    assert vehicles["B418HK98"]["earlier_anomaly"] is None
+    # пометка — только показ: машины, где отклонений не было, без неё
+    assert all(v["earlier_anomaly"] is None or v["earlier_anomaly"]["session_id"] != v["last_check"]["session_id"]
+               for v in vehicles.values())

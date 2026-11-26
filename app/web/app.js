@@ -20,6 +20,10 @@ const T = {
   send: "Спросить",
   status: { normal: "норма", anomaly: "отклонение", check_failed: "сбой проверки" },
   noChecks: "проверок нет",
+  earlierAnomaly: "{date}: было отклонение {code}",
+  earlierTicket: "заявка {id}",
+  earlierNoTicket: "заявки нет",
+  earlierOpen: "Открыть проверку {id}",
   verdict: {
     normal: "Норма — значимых отклонений нет, эксплуатацию можно продолжать",
     anomaly: "Отклонение: {title}",
@@ -50,6 +54,10 @@ const $ = (id) => document.getElementById(id);
 const fmt = (s, vars) => s.replace(/\{(\w+)\}/g, (_, k) => (vars[k] ?? ""));
 const num = (x) => (x == null ? "—" : Number(x).toFixed(2).replace(".", ","));
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const day = (iso) => new Date(iso).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" });
+// «31.10: было отклонение F12 · заявки нет» — отклонение, после которого пришли другие проверки
+const earlierText = (e) => fmt(T.earlierAnomaly, { date: day(e.checked_at), code: e.anomaly_type || "" })
+  + " · " + (e.ticket_id ? fmt(T.earlierTicket, { id: e.ticket_id }) : T.earlierNoTicket);
 const when = (iso) => new Date(iso).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
 
 const state = { vehicles: [], vehicle: null, conversationId: null, busy: false };
@@ -111,7 +119,8 @@ function renderFleet() {
     const status = last ? last.status : "";
     b.innerHTML = `<span class="dot ${esc(status)}"></span><span class="plate">${esc(v.vehicle_id)}</span>`
       + `<span class="st">${esc(last ? (T.status[status] || status) + (last.anomaly_type ? " " + last.anomaly_type : "") : T.noChecks)}</span>`
-      + `<span class="sub">${esc([v.make, v.model].filter(Boolean).join(" "))} · ${esc(v.engine_model)}</span>`;
+      + `<span class="sub">${esc([v.make, v.model].filter(Boolean).join(" "))} · ${esc(v.engine_model)}</span>`
+      + (v.earlier_anomaly ? `<span class="earlier">${esc(earlierText(v.earlier_anomaly))}</span>` : "");
     b.onclick = () => { location.hash = "#/v/" + encodeURIComponent(v.vehicle_id); };
     li.append(b);
     return li;
@@ -139,6 +148,16 @@ async function openVehicle(id) {
     return o;
   }));
   $("diagnose").disabled = v.sessions.length === 0;
+  const ea = v.earlier_anomaly, eb = $("v-earlier");
+  eb.hidden = !ea;
+  if (ea) {
+    eb.innerHTML = `<span>${esc(earlierText(ea))}${ea.anomaly_title ? " — " + esc(ea.anomaly_title) : ""}</span>`
+      + `<span class="go">${esc(fmt(T.earlierOpen, { id: ea.session_id }))} →</span>`;
+    eb.onclick = () => {
+      if (sel.value !== ea.session_id) { sel.value = ea.session_id; resetConversation(); }
+      $("diagnose").focus();
+    };
+  }
   show("vehicle");
 }
 

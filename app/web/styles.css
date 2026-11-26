@@ -31,6 +31,10 @@ main { max-width: 760px; margin: 0 auto; padding: 16px; }
 .vehicle-list .plate { font-size: 20px; }
 .vehicle-list .sub { grid-column: 2 / 4; color: var(--muted); font-size: 14px; }
 .vehicle-list .st { font-size: 14px; color: var(--muted); }
+.vehicle-list .earlier { grid-column: 2 / 4; color: var(--warn); font-size: 14px; }
+.earlier-btn { width: 100%; margin: 8px 0 4px; padding: 10px 12px; display: grid; gap: 2px; text-align: left;
+  border: 1px solid var(--warn); border-radius: 10px; background: var(--warn-bg); color: var(--warn); font-size: 15px; }
+.earlier-btn .go { font-weight: 600; }
 .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--grey-bg); }
 .dot.normal { background: var(--ok); } .dot.anomaly { background: var(--bad); }
 .dot.check_failed { background: #9ca3af; }

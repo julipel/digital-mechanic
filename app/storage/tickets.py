@@ -86,3 +86,10 @@ def list_tickets(db_path: Path, vehicle_id: str) -> list[dict]:
             "SELECT t.*, d.payload FROM tickets t JOIN ticket_drafts d ON d.draft_id = t.draft_id"
             " WHERE t.vehicle_id = ? AND t.status = 'created' ORDER BY t.created_at", (vehicle_id,)).fetchall()
     return [{**dict(r), "payload": json.loads(r["payload"])} for r in rows]
+
+
+def created_ticket_ids(db_path: Path) -> dict[tuple[str, str], str]:
+    """(vehicle_id, session_id) → ticket_id созданных заявок по всему парку — один запрос для списка машин."""
+    with connect(db_path) as conn:
+        rows = conn.execute("SELECT vehicle_id, session_id, ticket_id FROM tickets WHERE status = 'created'").fetchall()
+    return {(r["vehicle_id"], r["session_id"]): r["ticket_id"] for r in rows}

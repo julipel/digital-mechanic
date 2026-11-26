@@ -94,12 +94,28 @@ def _session_view(s) -> dict:
             "confidence": s.confidence, "signal_quality": s.signal_quality}
 
 
-def _vehicle_summary(v: Vehicle) -> dict:
+def _earlier_anomaly(v: Vehicle, ticket_ids: dict[tuple[str, str], str]) -> dict | None:
+    """Последнее отклонение, после которого были ещё проверки (ловушка данных: после отклонения
+    приходит «норма» — ремонт или ложное срабатывание). Без этого отклонение прячется за
+    последней проверкой. Если последняя проверка сама — отклонение, оно и так видно: None.
+    Только показ: на режим и набор инструментов агента не влияет."""
+    if not v.sessions or v.sessions[-1].status == "anomaly":
+        return None
+    for s in reversed(v.sessions[:-1]):
+        if s.status == "anomaly":
+            return {"session_id": s.session_id, "checked_at": s.checked_at.isoformat(),
+                    "anomaly_type": s.anomaly_type, "anomaly_title": s.anomaly_title,
+                    "ticket_id": ticket_ids.get((v.vehicle_id, s.session_id))}
+    return None
+
+
+def _vehicle_summary(v: Vehicle, ticket_ids: dict[tuple[str, str], str]) -> dict:
     last = v.last_session
     return {"vehicle_id": v.vehicle_id, "garage_no": v.garage_no, "make": v.make, "model": v.model,
             "vehicle_type": v.vehicle_type, "engine_model": v.engine_model, "fuel": v.fuel,
             "manuals_available": v.engine_family is not None,
-            "last_check": _session_view(last) if last else None}
+            "last_check": _session_view(last) if last else None,
+            "earlier_anomaly": _earlier_anomaly(v, ticket_ids)}
 
 
 def _sse(event: dict) -> bytes:
@@ -112,7 +128,8 @@ def build_router(services: Services) -> APIRouter:
 
     @router.get("/vehicles")
     def vehicles():
-        return [_vehicle_summary(v) for v in services.fleet().list()]
+        ticket_ids = ticket_store.created_ticket_ids(s.db_path)
+        return [_vehicle_summary(v, ticket_ids) for v in services.fleet().list()]
 
     @router.get("/vehicles/{vehicle_id}")
     def vehicle(vehicle_id: str):
@@ -122,7 +139,7 @@ def build_router(services: Services) -> APIRouter:
         tickets = [{"ticket_id": t["ticket_id"], "session_id": t["session_id"], "created_at": t["created_at"],
                     "urgency": t["payload"].get("urgency"), "anomaly_type": t["payload"].get("anomaly_type")}
                    for t in ticket_store.list_tickets(s.db_path, vehicle_id)]
-        return {**_vehicle_summary(v), "sessions": [_session_view(x) for x in reversed(v.sessions)],
+        return {**_vehicle_summary(v, ticket_store.created_ticket_ids(s.db_path)), "sessions": [_session_view(x) for x in reversed(v.sessions)],
                 "tickets": tickets}
 
     def stream(conv: Conversation, text: str, scenario: str) -> StreamingResponse:
