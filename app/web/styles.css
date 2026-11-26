@@ -146,3 +146,40 @@ dialog::backdrop { background: rgba(0, 0, 0, .6); }
 .journal li.j-warning { border-left-color: #d97706; } .journal li.j-warning .j-icon { color: var(--warn); }
 .journal li.j-ticket { border-left-color: var(--accent); }
 .journal li.j-question { border-left-color: var(--ok); }
+
+/* «Главный механик» (B3) */
+#main-tabs { margin-top: 0; margin-bottom: 12px; }
+.chief-counts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.chief-counts .count { display: grid; gap: 2px; justify-items: center; padding: 10px 4px; border: 2px solid transparent;
+  border-radius: 10px; background: var(--card); font-size: 13px; line-height: 1.2; text-align: center; }
+.chief-counts .count .n { font-size: 24px; font-weight: 700; }
+.chief-counts .count.quarantine .n { color: var(--bad); }
+.chief-counts .count.attention .n { color: var(--warn); }
+.chief-counts .count.normal .n { color: var(--ok); }
+.chief-counts .count[aria-pressed="true"] { border-color: var(--accent); }
+.chief-hint { font-size: 13px; margin: 8px 0; }
+.chief-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.chief-item { background: var(--card); border-radius: var(--radius); border-left: 6px solid var(--grey-bg); }
+.chief-item.quarantine { border-left-color: var(--bad); }
+.chief-item.attention { border-left-color: #d97706; }
+.chief-item.normal { border-left-color: var(--ok); }
+.chief-item summary { list-style: none; cursor: pointer; display: grid; grid-template-columns: auto 1fr; gap: 4px 10px;
+  align-items: center; padding: 12px; }
+.chief-item summary::-webkit-details-marker { display: none; }
+.chief-item .plate { font-size: 18px; }
+.chief-item .sub, .chief-item .why, .chief-item .tags { grid-column: 1 / 3; font-size: 14px; }
+.chief-item .sub, .chief-item .tags { color: var(--muted); }
+.badge { padding: 2px 8px; border-radius: 999px; font-size: 13px; font-weight: 600; white-space: nowrap; }
+.badge.quarantine { background: var(--bad-bg); color: var(--bad); }
+.badge.attention { background: var(--warn-bg); color: var(--warn); }
+.badge.normal { background: var(--ok-bg); color: var(--ok); }
+.chief-more { padding: 0 12px 12px; font-size: 14px; }
+.chief-more h3 { margin: 10px 0 4px; font-size: 14px; color: var(--muted); }
+.chief-more ul { margin: 0; padding-left: 18px; }
+.st-history { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 4px; }
+.st-history li { display: grid; grid-template-columns: 12px 48px 1fr; gap: 8px; align-items: center; }
+.st-history .dot-st { width: 10px; height: 10px; border-radius: 50%; background: var(--grey-bg); }
+.st-history .quarantine .dot-st { background: var(--bad); }
+.st-history .attention .dot-st { background: #d97706; }
+.st-history .normal .dot-st { background: var(--ok); }
+.chief-more .open-card { width: 100%; }

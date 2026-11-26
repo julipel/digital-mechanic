@@ -58,6 +58,21 @@ const T = {
   journalCsv: "Скачать CSV",
   journalEmpty: "Записей нет",
   journalSession: "проверка {id}",
+  navFleet: "Все машины",
+  navChief: "Главный механик",
+  chiefStatus: { quarantine: "Карантин", attention: "Требует внимания", normal: "Норма" },
+  chiefAll: "Все",
+  chiefHint: "Статус считает система по последней проверке, приоритету отклонения и оценке тенденции. Нажмите на машину — причины и история.",
+  chiefSince: "с {date}",
+  chiefBasis: "по проверке {date}",
+  chiefUrgency: "приоритет {u}",
+  chiefTicket: "заявка {id}",
+  chiefDays: "порог ≈ через {d} дн.",
+  chiefReasons: "Почему",
+  chiefNotes: "Также",
+  chiefHistory: "История статуса по проверкам",
+  chiefOpen: "Открыть карточку машины →",
+  chiefEmpty: "Машин с таким статусом нет",
   journalKinds: { "": "Все записи", check: "Проверки", request: "Запросы результата", question: "Вопросы механика",
     ticket: "Заявки", warning: "Предупреждения" },
 };
@@ -72,7 +87,8 @@ const earlierText = (e) => fmt(T.earlierAnomaly, { date: day(e.checked_at), code
   + " · " + (e.ticket_id ? fmt(T.earlierTicket, { id: e.ticket_id }) : T.earlierNoTicket);
 const when = (iso) => new Date(iso).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
 
-const state = { vehicles: [], vehicle: null, conversationId: null, busy: false };
+const state = { vehicles: [], vehicle: null, conversationId: null, busy: false,
+  chief: null, chiefFilter: "", backHash: "" };
 
 // --- строки интерфейса из словаря ---------------------------------------------------------
 document.querySelectorAll("[data-t]").forEach((el) => { el.textContent = T[el.dataset.t]; });
@@ -133,12 +149,77 @@ function renderFleet() {
       + `<span class="st">${esc(last ? (T.status[status] || status) + (last.anomaly_type ? " " + last.anomaly_type : "") : T.noChecks)}</span>`
       + `<span class="sub">${esc([v.make, v.model].filter(Boolean).join(" "))} · ${esc(v.engine_model)}</span>`
       + (v.earlier_anomaly ? `<span class="earlier">${esc(earlierText(v.earlier_anomaly))}</span>` : "");
-    b.onclick = () => { location.hash = "#/v/" + encodeURIComponent(v.vehicle_id); };
+    b.onclick = () => { state.backHash = ""; location.hash = "#/v/" + encodeURIComponent(v.vehicle_id); };
     li.append(b);
     return li;
   }));
   $("fleet-empty").textContent = T.nothingFound;
   $("fleet-empty").hidden = list.length > 0;
+}
+
+// --- «Главный механик» (B3): статусы считает сервер (policy/fleet_status), здесь только показ ----
+const CHIEF_ORDER = ["quarantine", "attention", "normal"];
+
+async function loadChief() {
+  const res = await api("/api/fleet/status");
+  if (!res.ok) { $("chief-empty").textContent = await errorText(res); $("chief-empty").hidden = false; return; }
+  state.chief = await res.json();
+  renderChief();
+}
+
+function renderChief() {
+  const data = state.chief;
+  if (!data) return;
+  const f = state.chiefFilter;
+  const counts = [["", T.chiefAll, data.vehicles.length], ...CHIEF_ORDER.map((k) => [k, T.chiefStatus[k], data.counts[k]])];
+  $("chief-counts").replaceChildren(...counts.map(([k, label, n]) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "count " + (k || "all");
+    b.setAttribute("aria-pressed", String(f === k));
+    b.innerHTML = `<span class="n">${esc(n)}</span><span>${esc(label)}</span>`;
+    b.onclick = () => { state.chiefFilter = k; renderChief(); };
+    return b;
+  }));
+  const list = data.vehicles.filter((v) => !f || v.status === f);
+  $("chief-list").replaceChildren(...list.map(chiefItem));
+  $("chief-empty").textContent = T.chiefEmpty;
+  $("chief-empty").hidden = list.length > 0;
+}
+
+// Строка списка: статус, госномер, главная причина; по клику — все причины, история статуса, переход в карточку.
+function chiefItem(v) {
+  const li = document.createElement("li");
+  li.className = "chief-item " + v.status;
+  const d = document.createElement("details");
+  // приоритет и выраженность — по последней пригодной проверке; если она не последняя, пишем её дату
+  const basis = v.history.find((h) => h.session_id === v.basis_session_id);
+  const lastH = v.history[v.history.length - 1];
+  const tags = [
+    basis && lastH && basis !== lastH ? fmt(T.chiefBasis, { date: day(basis.checked_at) }) : "",
+    v.since ? fmt(T.chiefSince, { date: day(v.since) }) : "",
+    v.urgency ? fmt(T.chiefUrgency, { u: T.urgency[v.urgency] }) : "",
+    v.days_to_threshold != null ? fmt(T.chiefDays, { d: v.days_to_threshold }) : "",
+    v.ticket_id ? fmt(T.chiefTicket, { id: v.ticket_id }) : "",
+  ].filter(Boolean);
+  const list = (items) => `<ul>${items.map((r) => `<li>${esc(r)}</li>`).join("")}</ul>`;
+  d.innerHTML = `<summary><span class="badge ${esc(v.status)}">${esc(T.chiefStatus[v.status] || v.status_ru)}</span>`
+    + `<span class="plate">${esc(v.vehicle_id)}</span>`
+    + `<span class="sub">${esc([[v.make, v.model].filter(Boolean).join(" "), v.engine_model].filter(Boolean).join(" · "))}</span>`
+    + `<span class="why">${esc(v.reasons[0] || "")}</span>`
+    + (tags.length ? `<span class="tags">${esc(tags.join(" · "))}</span>` : "") + `</summary>`
+    + `<div class="chief-more"><h3>${esc(T.chiefReasons)}</h3>${list(v.reasons)}`
+    + (v.notes.length ? `<h3>${esc(T.chiefNotes)}</h3>${list(v.notes)}` : "")
+    + `<h3>${esc(T.chiefHistory)}</h3><ol class="st-history">`
+    + v.history.map((h) => `<li class="${esc(h.status)}" title="${esc(h.session_id)}"><span class="dot-st"></span>`
+      + `<span>${esc(day(h.checked_at))}</span><span class="st-name">${esc(T.chiefStatus[h.status] || h.status)}</span></li>`).join("")
+    + `</ol><button type="button" class="primary open-card">${esc(T.chiefOpen)}</button></div>`;
+  d.querySelector(".open-card").onclick = () => {
+    state.backHash = "#/chief";
+    location.hash = "#/v/" + encodeURIComponent(v.vehicle_id);
+  };
+  li.append(d);
+  return li;
 }
 
 // --- экран машины --------------------------------------------------------------------------
@@ -276,15 +357,20 @@ function resetConversation() {
 
 function show(view) {
   $("fleet-view").hidden = view !== "fleet";
+  $("chief-view").hidden = view !== "chief";
   $("vehicle-view").hidden = view !== "vehicle";
-  $("back").hidden = view === "fleet";
-  if (view === "fleet") $("title").textContent = T.appTitle;
+  $("main-tabs").hidden = view === "vehicle";
+  $("nav-fleet").setAttribute("aria-selected", String(view === "fleet"));
+  $("nav-chief").setAttribute("aria-selected", String(view === "chief"));
+  $("back").hidden = view !== "vehicle";
+  if (view !== "vehicle") $("title").textContent = T.appTitle;
   window.scrollTo(0, 0);
 }
 
 function route() {
   const m = location.hash.match(/^#\/v\/(.+)$/);
   if (m) openVehicle(decodeURIComponent(m[1]));
+  else if (location.hash === "#/chief") { state.vehicle = null; show("chief"); loadChief(); }
   else { state.vehicle = null; show("fleet"); }
 }
 
@@ -477,7 +563,9 @@ function ask(text, scenario = "question") {
 
 // --- обработчики ---------------------------------------------------------------------------
 $("search").addEventListener("input", renderFleet);
-$("back").onclick = () => { location.hash = ""; };
+$("back").onclick = () => { location.hash = state.backHash; };
+$("nav-fleet").onclick = () => { location.hash = ""; };
+$("nav-chief").onclick = () => { location.hash = "#/chief"; };
 $("session").onchange = () => { resetConversation(); loadTrend(); };   // другая проверка — новый диалог
 $("diagnose").onclick = () => {
   resetConversation();

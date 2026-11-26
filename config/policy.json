@@ -31,6 +31,12 @@
     "_comment": "Память по ТС (B1, app/policy/history.py): сколько последних проверок до выбранной видит агент.",
     "max_checks": 10
   },
+  "fleet_status": {
+    "_comment": "Режим «Главный механик» (B3, app/policy/fleet_status.py). Статус по последней пригодной проверке: отклонение с приоритетом из quarantine_urgency → карантин, иначе «требует внимания»; сбой записи или код, невозможный для двигателя, → не ниже «требует внимания» (повторить запись). Оценка тенденции только повышает статус: порог карантина по прогнозу не дальше attention_trend_days → «требует внимания»; не дальше quarantine_trend_days → карантин (null — по прогнозу карантин не ставим).",
+    "quarantine_urgency": ["high"],
+    "attention_trend_days": 30,
+    "quarantine_trend_days": null
+  },
   "ticket": {
     "part_number_min_len": 5
   }

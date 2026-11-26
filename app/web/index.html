@@ -15,11 +15,24 @@
   </header>
 
   <main>
+    <nav class="tabs" id="main-tabs" role="tablist">
+      <button type="button" role="tab" id="nav-fleet" aria-selected="true" data-t="navFleet"></button>
+      <button type="button" role="tab" id="nav-chief" aria-selected="false" data-t="navChief"></button>
+    </nav>
+
     <!-- Экран 1: парк -->
     <section id="fleet-view">
       <input id="search" type="search" inputmode="search" autocomplete="off" data-t-placeholder="searchPlaceholder">
       <ul id="vehicles" class="vehicle-list"></ul>
       <p id="fleet-empty" class="muted" hidden data-t="nothingFound"></p>
+    </section>
+
+    <!-- Экран «Главный механик» (B3): статусы парка, приоритетный список, история по клику -->
+    <section id="chief-view" hidden>
+      <div class="chief-counts" id="chief-counts" role="group"></div>
+      <p class="muted chief-hint" data-t="chiefHint"></p>
+      <ul id="chief-list" class="chief-list"></ul>
+      <p id="chief-empty" class="muted" hidden></p>
     </section>
 
     <!-- Экран 2: машина, проверка, вердикт, чат -->

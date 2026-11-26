@@ -3,6 +3,9 @@
 Роуты:
 - GET  /api/vehicles                    — парк: госномер, модель, двигатель, последняя проверка;
 - GET  /api/vehicles/{id}               — карточка, история проверок (новые сверху), наши заявки;
+- GET  /api/fleet/status                — «Главный механик» (B3): статус каждой машины (норма /
+                                          требует внимания / карантин) с причинами, приоритетный
+                                          список и история статусов (policy/fleet_status, без модели);
 - GET  /api/vehicles/{id}/trend?session_id= — оценка тенденции anomaly_score на момент проверки
                                           (policy/trend, без модели) — для графика в карточке;
 - GET  /api/vehicles/{id}/journal?kind= — журнал ТС: проверки и наши действия, новые сверху
@@ -36,6 +39,7 @@ from app.integrations.errors import BadRequest, IntegrationError, NotDelivered, 
 from app.integrations.fleet import Fleet, Vehicle, fault_titles
 from app.integrations.ml_client import DiagnosticsService
 from app.integrations.toir_client import TicketService
+from app.policy.fleet_status import STATUS_RU, STATUSES, status_history, status_since, vehicle_status
 from app.policy.tickets import TicketError, cancel_draft, confirm_draft
 from app.policy.trend import vehicle_trend
 from app.retrieval.pages import PageNotFound, RateLimiter, render_page
@@ -137,6 +141,25 @@ def build_router(services: Services) -> APIRouter:
     def vehicles():
         ticket_ids = ticket_store.created_ticket_ids(s.db_path)
         return [_vehicle_summary(v, ticket_ids) for v in services.fleet().list()]
+
+    @router.get("/fleet/status")
+    def fleet_status():
+        ticket_ids = ticket_store.created_ticket_ids(s.db_path)
+        titles = fault_titles(s.fault_types_path)
+        rows = []
+        for v in services.fleet().list():
+            st = vehicle_status(v, s.config_dir, fault_titles=titles, ticket_ids=ticket_ids)
+            history = status_history(v, s.config_dir, fault_titles=titles, ticket_ids=ticket_ids)
+            rows.append((st.sort_key(), v.vehicle_id, {
+                **_vehicle_summary(v, ticket_ids), "status": st.status, "status_ru": STATUS_RU[st.status],
+                "since": status_since(history), "reasons": list(st.reasons), "notes": list(st.notes),
+                "urgency": st.urgency, "anomaly_type": st.anomaly_type, "anomaly_score": st.anomaly_score,
+                "days_to_threshold": st.days_to_threshold, "ticket_id": st.ticket_id,
+                "basis_session_id": st.basis_session_id, "history": history}))
+        rows.sort(key=lambda r: (r[0], r[1]))
+        vehicles = [r[2] for r in rows]
+        return {"counts": {k: sum(v["status"] == k for v in vehicles) for k in STATUSES},
+                "vehicles": vehicles}
 
     @router.get("/vehicles/{vehicle_id}")
     def vehicle(vehicle_id: str):
