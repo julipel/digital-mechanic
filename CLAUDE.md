@@ -246,7 +246,10 @@ tests/
 - Оценка поиска: `python -m eval.run_eval` (дописывает eval/history.csv);
   `--bm25-only` — без эмбеддингов, `--no-history` — не писать историю
 - Запуск без Docker: `scripts/run_local.ps1` / `scripts/run_local.sh`
-- [docker compose — заполнить на этапе 7]
+- Docker локально: `docker compose -f docker-compose.yml -f docker-compose.local.yml up --build -d`
+- Стенд: `docker compose -f docker-compose.yml -f docker-compose.server.yml up -d --build` в /srv/digital-mechanic.
+  Вне git на сервер копируются отдельно: kb/, index/ (права 700), .env (600), mocks/data/vehicles.json.
+  SSH — по IP `deploy@85.204.18.44` (ключ хоста в known_hosts записан под IP).
 
 ## Стенд
 
