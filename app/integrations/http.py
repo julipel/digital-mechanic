@@ -1,7 +1,8 @@
 """Общий HTTP-вызов для клиентов заглушек: JSON в UTF-8, перевод ошибок в доменные."""
 import httpx
 
-from app.integrations.errors import BadRequest, LegacySchema, NotFound, ServiceUnavailable
+from app.integrations.errors import (BadRequest, DeliveryUnknown, LegacySchema, NotDelivered, NotFound,
+                                     ServiceUnavailable)
 
 
 async def post_json(
@@ -14,8 +15,10 @@ async def post_json(
         async with httpx.AsyncClient(base_url=base_url, timeout=timeout,
                                      transport=transport, trust_env=False) as client:
             r = await client.post(path, json=payload)
+    except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+        raise NotDelivered(f"{service}: нет соединения ({type(exc).__name__})", service=service) from exc
     except httpx.HTTPError as exc:
-        raise ServiceUnavailable(f"{service}: нет ответа ({type(exc).__name__})", service=service) from exc
+        raise DeliveryUnknown(f"{service}: нет ответа ({type(exc).__name__})", service=service) from exc
 
     if r.is_success:
         return r

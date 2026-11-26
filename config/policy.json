@@ -1,0 +1,24 @@
+{
+  "_comment": "Пороги политик (app/policy). Меняются здесь, без правки кода. Числа подобраны по данным заглушки: у anomaly confidence от 0,48, у normal ниже порога anomaly_score 0,33–0,45.",
+  "modes": {
+    "low_confidence_below": 0.6
+  },
+  "urgency": {
+    "_comment": "Базовый уровень — по anomaly_score; затем не ниже минимума для типа неисправности; затем +1 уровень за повтор или рост относительно прошлой проверки (не выше high). Низкая уверенность и помехи уровень НЕ снижают — только добавляют причину (решение в пользу безопасности).",
+    "score_high_from": 0.8,
+    "score_medium_from": 0.65,
+    "fault_minimum": {
+      "F02": "high",
+      "F03": "high",
+      "F14": "medium",
+      "F09": "medium",
+      "F08": "medium",
+      "F01": "medium"
+    },
+    "growth_min_delta": 0.1,
+    "repeat_raises": true
+  },
+  "ticket": {
+    "part_number_min_len": 5
+  }
+}

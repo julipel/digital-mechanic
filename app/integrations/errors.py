@@ -15,6 +15,15 @@ class ServiceUnavailable(IntegrationError):
     """Сервис не отвечает, таймаут или 5xx — можно повторить позже."""
 
 
+class NotDelivered(ServiceUnavailable):
+    """Соединение не установлено — запрос точно не дошёл до сервиса, повтор безопасен."""
+
+
+class DeliveryUnknown(ServiceUnavailable):
+    """Запрос мог дойти, но ответа нет (таймаут чтения, обрыв). Для заявки повтор опасен:
+    в ТОиР могла создаться заявка."""
+
+
 class NotFound(IntegrationError):
     """404: неизвестная машина или проверка (в т.ч. проверка чужой машины)."""
 
