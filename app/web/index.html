@@ -2,11 +2,64 @@
 <html lang="ru">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1f2937">
   <title>Цифровой механик</title>
+  <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <h1>Цифровой механик</h1>
-  <p>Интерфейс механика появится на этапе 6. Состояние сервисов: <a href="/health">/health</a>.</p>
+  <header class="topbar">
+    <button id="back" class="icon-btn" hidden aria-label="К списку машин">←</button>
+    <h1 id="title">Цифровой механик</h1>
+    <a href="/logout" class="logout" data-t="logout"></a>
+  </header>
+
+  <main>
+    <!-- Экран 1: парк -->
+    <section id="fleet-view">
+      <input id="search" type="search" inputmode="search" autocomplete="off" data-t-placeholder="searchPlaceholder">
+      <ul id="vehicles" class="vehicle-list"></ul>
+      <p id="fleet-empty" class="muted" hidden data-t="nothingFound"></p>
+    </section>
+
+    <!-- Экран 2: машина, проверка, вердикт, чат -->
+    <section id="vehicle-view" hidden>
+      <div class="vehicle-head">
+        <div class="plate" id="v-plate"></div>
+        <div class="muted" id="v-model"></div>
+        <p class="note warn" id="v-no-manuals" hidden data-t="noManuals"></p>
+      </div>
+
+      <label class="field">
+        <span data-t="checkLabel"></span>
+        <select id="session"></select>
+      </label>
+      <button id="diagnose" class="primary big" data-t="diagnose"></button>
+
+      <article id="verdict" class="verdict" hidden></article>
+
+      <div id="chat" class="chat" aria-live="polite"></div>
+
+      <div class="quick" id="quick">
+        <button data-quick="check" data-t="qCheck"></button>
+        <button data-quick="drive" data-t="qDrive"></button>
+        <button data-quick="ticket" data-t="qTicket"></button>
+      </div>
+      <form id="ask" class="ask">
+        <textarea id="message" rows="2" maxlength="2000" data-t-placeholder="askPlaceholder"></textarea>
+        <button type="submit" class="primary" data-t="send"></button>
+      </form>
+    </section>
+  </main>
+
+  <dialog id="page-dialog">
+    <div class="dialog-head">
+      <strong id="page-title"></strong>
+      <button class="icon-btn" id="page-close" aria-label="Закрыть">✕</button>
+    </div>
+    <div class="page-body"><img id="page-img" alt=""></div>
+  </dialog>
+
+  <script src="app.js"></script>
 </body>
 </html>

@@ -61,8 +61,13 @@ class Settings(BaseSettings):
     fault_types_path: Path = Path("mocks/data/fault_types.json")
     config_dir: Path = Path("config")  # engines.json, fault_applicability.json
 
+    # Просмотр страницы руководства в интерфейсе: одна страница PNG, кеш вне KB (KB — только чтение)
+    page_cache_dir: Path = Path("var/page_cache")
+    page_render_dpi: int = 110
+    page_rate_per_minute: int = 30     # картинок страниц на одну сессию интерфейса в минуту
+
     @field_validator("kb_dir", "index_dir", "db_path", "vehicles_path", "fault_types_path", "config_dir",
-                     mode="before")
+                     "page_cache_dir", mode="before")
     @classmethod
     def _resolve_from_root(cls, value):
         if value is None or value == "":

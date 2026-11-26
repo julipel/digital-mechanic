@@ -1,0 +1,105 @@
+/* Мобильная вёрстка по умолчанию: одна колонка, крупные элементы, без горизонтального скролла. */
+:root {
+  --bg: #f3f4f6; --card: #fff; --text: #111827; --muted: #6b7280; --line: #e5e7eb;
+  --accent: #1f6feb; --ok: #15803d; --ok-bg: #dcfce7; --bad: #b91c1c; --bad-bg: #fee2e2;
+  --warn: #92400e; --warn-bg: #fef3c7; --grey: #4b5563; --grey-bg: #e5e7eb;
+  --radius: 12px;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text);
+  font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; overflow-x: hidden; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+[hidden] { display: none !important; }
+.muted { color: var(--muted); }
+
+.topbar { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 8px;
+  padding: 10px 16px; background: #1f2937; color: #fff; }
+.topbar h1 { flex: 1; margin: 0; font-size: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.logout { color: #d1d5db; font-size: 14px; }
+.icon-btn { border: 0; background: transparent; color: inherit; font-size: 22px; padding: 4px 8px; }
+
+main { max-width: 760px; margin: 0 auto; padding: 16px; }
+
+/* Парк */
+#search { width: 100%; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius);
+  font-size: 18px; background: var(--card); }
+.vehicle-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 8px; }
+.vehicle-list button { width: 100%; text-align: left; display: grid; grid-template-columns: 14px 1fr auto;
+  gap: 4px 12px; align-items: center; padding: 14px; border: 1px solid var(--line);
+  border-radius: var(--radius); background: var(--card); }
+.vehicle-list .plate { font-size: 20px; }
+.vehicle-list .sub { grid-column: 2 / 4; color: var(--muted); font-size: 14px; }
+.vehicle-list .st { font-size: 14px; color: var(--muted); }
+.dot { width: 12px; height: 12px; border-radius: 50%; background: var(--grey-bg); }
+.dot.normal { background: var(--ok); } .dot.anomaly { background: var(--bad); }
+.dot.check_failed { background: #9ca3af; }
+.plate { font-weight: 700; letter-spacing: .04em; font-variant-numeric: tabular-nums; }
+
+/* Машина */
+.vehicle-head .plate { font-size: 26px; }
+.note { margin: 8px 0 0; padding: 8px 12px; border-radius: 8px; font-size: 14px; }
+.note.warn { background: var(--warn-bg); color: var(--warn); }
+.field { display: grid; gap: 4px; margin: 16px 0 12px; font-size: 14px; color: var(--muted); }
+select, textarea { width: 100%; padding: 12px; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--card); font-size: 16px; }
+.primary { border: 0; border-radius: 10px; background: var(--accent); color: #fff; padding: 12px 16px; font-weight: 600; }
+.primary:disabled { opacity: .5; }
+.primary.big { width: 100%; padding: 18px; font-size: 18px; }
+
+/* Вердикт */
+.verdict { margin-top: 16px; padding: 16px; border-radius: var(--radius); background: var(--card);
+  border-left: 8px solid var(--grey); }
+.verdict.normal { border-color: var(--ok); } .verdict.anomaly { border-color: var(--bad); }
+.verdict.anomaly_low_confidence { border-color: #d97706; }
+.verdict.check_failed { border-color: #9ca3af; } .verdict.ml_inconsistent { border-color: #d97706; }
+.verdict .headline { margin: 0; font-size: 20px; font-weight: 700; line-height: 1.3; }
+.verdict .metrics { margin: 8px 0 0; color: var(--muted); font-size: 15px; }
+.badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.badge { padding: 6px 10px; border-radius: 8px; font-size: 14px; background: var(--warn-bg); color: var(--warn); }
+.urgency { margin-top: 10px; }
+.urgency summary { font-weight: 600; cursor: pointer; }
+.lvl-high { color: var(--bad); } .lvl-medium { color: var(--warn); } .lvl-low { color: var(--ok); }
+.verdict .version { margin-top: 10px; font-size: 12px; color: var(--muted); }
+
+/* Чат */
+.chat { display: grid; gap: 10px; margin-top: 16px; }
+.msg { padding: 12px 14px; border-radius: var(--radius); white-space: pre-wrap; overflow-wrap: anywhere; }
+.msg.user { justify-self: end; max-width: 85%; background: var(--accent); color: #fff; }
+.msg.agent { background: var(--card); border: 1px solid var(--line); }
+.msg.error { background: var(--bad-bg); color: var(--bad); }
+.msg.pending::after { content: "…"; animation: blink 1s infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.chip { display: inline-block; margin: 2px 2px; padding: 2px 8px; border: 1px solid var(--accent);
+  border-radius: 999px; background: #eef4ff; color: var(--accent); font-size: 14px; white-space: nowrap; }
+.steps { margin-top: 8px; font-size: 13px; color: var(--muted); white-space: normal; }
+.steps summary { cursor: pointer; }
+
+/* Черновик заявки */
+.draft { padding: 14px; border-radius: var(--radius); background: var(--card); border: 2px solid var(--accent); }
+.draft h3 { margin: 0 0 8px; font-size: 18px; }
+.draft dl { margin: 0; display: grid; gap: 6px; }
+.draft dt { font-size: 13px; color: var(--muted); }
+.draft dd { margin: 0; }
+.draft ol, .draft ul { margin: 0; padding-left: 20px; }
+.draft .actions { display: flex; gap: 8px; margin-top: 12px; }
+.draft .actions button { flex: 1; padding: 14px; }
+.secondary { border: 1px solid var(--line); border-radius: 10px; background: var(--card); padding: 12px 16px; }
+.draft .result { margin-top: 10px; font-weight: 600; }
+.draft .result.ok { color: var(--ok); } .draft .result.bad { color: var(--bad); }
+
+/* Ввод */
+.quick { display: flex; gap: 8px; margin-top: 16px; overflow-x: auto; }
+.quick button { flex: 0 0 auto; padding: 10px 12px; border: 1px solid var(--line); border-radius: 999px;
+  background: var(--card); font-size: 15px; }
+.ask { display: flex; gap: 8px; margin-top: 10px; position: sticky; bottom: 0; padding: 8px 0 12px;
+  background: var(--bg); }
+.ask textarea { flex: 1; resize: none; }
+
+/* Страница руководства */
+dialog { width: min(100vw - 16px, 900px); max-height: 92vh; padding: 0; border: 0; border-radius: var(--radius); }
+dialog::backdrop { background: rgba(0, 0, 0, .6); }
+.dialog-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px;
+  border-bottom: 1px solid var(--line); }
+.page-body { overflow: auto; max-height: calc(92vh - 50px); }
+.page-body img { display: block; width: 100%; height: auto; }

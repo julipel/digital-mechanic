@@ -1,29 +1,51 @@
-"""FastAPI-приложение: middleware request_id и доступа по паролю, /health, вход, отдача фронтенда.
-
-Бизнес-логики здесь нет — роуты сценариев появятся на этапе 6.
+"""FastAPI-приложение: middleware request_id и доступа по паролю, /health, вход, API
+интерфейса механика (app/api.py) и отдача фронтенда (app/web/). Бизнес-логики здесь нет.
 """
 import asyncio
 from pathlib import Path
+from typing import Callable
 
 import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.agent.loop import ChatModel, make_chat_model
+from app.api import Services, build_router
 from app.auth import auth_guard, login_form, login_submit, logout
 from app.config import Settings, get_settings
+from app.integrations.fleet import get_fleet
+from app.integrations.ml_client import HttpMlClient
+from app.integrations.toir_client import HttpToirClient
+from app.retrieval.pages import RateLimiter
+from app.retrieval.search import search as default_search
 from app.storage.events import new_request_id, request_id_var
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
 REQUEST_ID_HEADER = "X-Request-ID"
 
 
-def create_app(settings: Settings | None = None, http_transport: httpx.AsyncBaseTransport | None = None) -> FastAPI:
-    """Фабрика приложения. http_transport подменяется в тестах, чтобы не поднимать заглушки."""
+def create_app(settings: Settings | None = None, http_transport: httpx.AsyncBaseTransport | None = None,
+               *, chat_model: ChatModel | None = None, search_fn: Callable | None = None,
+               manuals_fn: Callable[[str], list[str]] | None = None) -> FastAPI:
+    """Фабрика приложения. В тестах подменяются http_transport (заглушки в процессе),
+    модель, поиск и список документов — сеть и LLM не нужны."""
     settings = settings or get_settings()
-    app = FastAPI(title="Цифровой механик", version="0.1.0")
+    app = FastAPI(title="Цифровой механик", version="0.2.0")
     app.state.settings = settings
     app.state.http_transport = http_transport
+    services = Services(
+        settings=settings,
+        fleet_fn=lambda: get_fleet(settings.vehicles_path, settings.config_dir, settings.fault_types_path),
+        ml=HttpMlClient(settings.mock_ml_url, settings.http_timeout_s, transport=http_transport),
+        toir=HttpToirClient(settings.mock_toir_url, settings.http_timeout_s, transport=http_transport),
+        model_fn=(lambda: chat_model) if chat_model is not None else (lambda: make_chat_model(settings)),
+        search_fn=search_fn or default_search,
+        manuals_fn=manuals_fn,
+        page_limiter=RateLimiter(settings.page_rate_per_minute),
+    )
+    app.state.services = services
+    app.include_router(build_router(services))
 
     # Порядок: middleware, объявленный позже, — внешний. Проверка доступа внутри request_id,
     # чтобы и отказ получил заголовок X-Request-ID.
