@@ -212,7 +212,16 @@ tests/
 
 ## Команды
 
-[Заполнить в спринте: запуск, построение индекса, тесты, оценка, docker compose.]
+Из корня проекта, интерпретатор `.venv/Scripts/python.exe` (Windows) или `.venv/bin/python`.
+Если в Windows задана системная переменная OPENAI_API_KEY, она перекрывает .env — запускать
+через `env -u OPENAI_API_KEY ...` (Git Bash).
+
+- Тесты: `python -m pytest -q`
+- Индекс: `python scripts/build_index.py`; распознавание сканов: `python scripts/ocr_scans.py`
+- Оценка поиска: `python -m eval.run_eval` (дописывает eval/history.csv);
+  `--bm25-only` — без эмбеддингов, `--no-history` — не писать историю
+- Запуск без Docker: `scripts/run_local.ps1` / `scripts/run_local.sh`
+- [docker compose — заполнить на этапе 7]
 
 ## Стенд
 
