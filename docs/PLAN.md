@@ -1,3 +1,7 @@
+> **Рабочий документ разработки.** План этапов спринта и промпты для Claude Code — для команды,
+> не часть продукта: код его не читает, в Docker-образ он не попадает. Правила проекта — в CLAUDE.md,
+> запуск и устройство — в README.
+
 # Цифровой механик — план реализации для Claude Code
 
 Время указано по Москве (Берлин = МСК − 2). Спринт: 10:00 26.11 — 10:00 28.11.
@@ -35,16 +39,20 @@
    data/fault_types.json, их requirements и тесты — файлы я дам (путь назову). Код заглушек
    не меняй.
 3. app/config.py на pydantic-settings: MOCK_ML_URL, MOCK_TOIR_URL, OPENAI_API_KEY,
-   OPENAI_BASE_URL (необязательный), модели (агент, эмбеддинги, vision для сканов),
-   пути к PDF, индексу, SQLite, vehicles.json. .env.example со всеми ключами без значений.
+   OPENAI_BASE_URL (необязательный), модели (агент, эмбеддинги, VISION_MODEL для сканов),
+   KB_DIR и INDEX_DIR (внешняя база знаний — раздел «База знаний» CLAUDE.md), SQLite,
+   vehicles.json, APP_PASSWORD для доступа к стенду. .env.example со всеми ключами без значений.
+   kb.example.yaml — структура манифеста базы знаний без данных; пустая папка demo_kb/.
 4. FastAPI app/main.py: GET /health (проверяет доступность обеих заглушек).
 5. requirements.txt с закреплёнными версиями (fastapi, uvicorn, pydantic-settings,
    httpx, openai, pymupdf, rank-bm25, numpy, pytest). Перед добавлением чего-то ещё — спроси.
 6. docker-compose.yml: mechanic-web (8000), mock-ml (8001), mock-toir (8002) во внутренней
    сети; mechanic-web дополнительно в внешней сети deploy_default (через переменную, чтобы
-   локально compose работал и без неё); mem_limit из CLAUDE.md; data/ и index/ — тома.
+   локально compose работал и без неё); mem_limit из CLAUDE.md; KB_DIR монтируется томом
+   только на чтение, INDEX_DIR и SQLite — томами; в образ они не копируются (.dockerignore).
 7. scripts/: run_local.ps1 и run_local.sh (заглушки + приложение без Docker).
-8. .gitignore: .env, data/manuals/, *.pdf, index/, *.sqlite.
+8. .gitignore и .dockerignore: .env, data/manuals/, kb/, *.pdf, index/, *.sqlite.
+   Простой доступ по паролю к интерфейсу и API (кроме /health).
 9. app/storage/events.py: журнал событий по CLAUDE.md (SQLite `events` + JSON в stdout,
    request_id через middleware). Таблица llm_calls — там же.
 10. tests/test_health.py.
@@ -84,14 +92,16 @@
 ## Этап 2. Индексация PDF
 
 ```
-Этап 2: индексация шести руководств. PDF лежат в data/manuals/ (имена файлов назову).
+Этап 2: индексация шести руководств. База знаний внешняя: каталог задаётся KB_DIR,
+индекс пишется в INDEX_DIR (раздел «База знаний» CLAUDE.md). Имена файлов назову.
 Сначала вызови manual-researcher: для каждого документа — число страниц, есть ли сдвиг
 напечатанного номера, колонтитулы, страницы без текстового слоя, как выглядят таблицы.
 Сверь с разделом «Ловушки, известные по анализу PDF» в CLAUDE.md.
 
 Затем:
-1. config/manuals.yaml: doc_id, обозначение для references[].manual (ровно как в ТЗ),
-   файл, семейство двигателя, тип (РЭ/РК), число страниц.
+1. Манифест {KB_DIR}/kb.yaml (не в репозитории): doc_id, обозначение для
+   references[].manual (ровно как в ТЗ), файл, семейство двигателя, тип (РЭ/РК), число
+   страниц, sha256. Код читает документы только из манифеста; проверяет sha256 и число страниц.
 2. app/retrieval/extract.py: постраничный текст с вёрсткой (PyMuPDF). Номер страницы =
    индекс PDF с 1. Вырезать повторяющиеся колонтитулы и напечатанные номера.
    Для 536.01.02 РК — название карты операции в метаданные, «Страница N» вырезать.
@@ -205,7 +215,9 @@ API:
   результат выводится в чат через агента;
 - POST /api/chat — SSE-стрим ответа агента;
 - POST /api/tickets/{draft_id}/confirm {hash} — отправка в Mock ТОиР, ответ ticket_id;
-- GET /api/manuals/{doc_id}/pages/{n}.png — рендер страницы PDF (кеш на диске).
+- GET /api/manuals/{doc_id}/pages/{n}.png — рендер одной страницы, только для
+  авторизованной сессии, с ограничением частоты, кеш в var/page_cache (индекс в контейнере только
+  на чтение); полный PDF не отдаётся.
 
 Интерфейс:
 1. Выбор ТС: поиск по госномеру, в списке двигатель и цветная метка последнего статуса.
@@ -241,7 +253,9 @@ API:
 2. Исправь то, что падает. Ничего нового не добавляй.
 3. rules-reviewer на всё с прошлого ревью + golden-set-evaluator.
 4. README: запуск за 5 минут (Docker и без Docker, Windows и Linux).
-5. После моего «да» — deployer на https://demo-mechanic.juliaplavinsky.ru.
+5. На сервер KB и индекс копируются отдельно (scp) в /srv/digital-mechanic/kb и /index,
+   права 700; в репозиторий и образ — никогда. APP_PASSWORD — в .env сервера.
+6. После моего «да» — deployer на https://demo-mechanic.juliaplavinsky.ru.
 
 Коммит «С1–С3 работают, первый деплой». Дай мне чек-лист для проверки с телефона.
 ```
