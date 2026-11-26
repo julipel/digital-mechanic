@@ -22,7 +22,7 @@ request_id_var: ContextVar[str | None] = ContextVar("request_id", default=None)
 
 EVENT_TYPES = frozenset({
     "diagnose_called", "diagnose_result", "injection_detected", "ml_inconsistent",
-    "tool_called", "search_results", "answer_sent",
+    "tool_called", "search_results", "trend_computed", "answer_sent",
     "ticket_draft", "ticket_rejected", "ticket_confirmed", "ticket_created", "toir_error",
     "error",
 })

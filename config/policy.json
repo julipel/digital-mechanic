@@ -18,6 +18,15 @@
     "growth_min_delta": 0.1,
     "repeat_raises": true
   },
+  "trend": {
+    "_comment": "Оценка тенденции (B2, app/policy/trend.py). window — сколько последних проверок берём; min_points — меньше точек после разрыва ряда → прогноза нет; max_rmse — разброс вокруг прямой, выше — ряд нестабилен; min_change_per_30d — изменение за 30 дней, ниже — «без заметного роста»; threshold_score — порог карантина; horizon_days — дальше этого срок не называем.",
+    "window": 5,
+    "min_points": 3,
+    "max_rmse": 0.12,
+    "min_change_per_30d": 0.05,
+    "threshold_score": 0.8,
+    "horizon_days": 90
+  },
   "ticket": {
     "part_number_min_len": 5
   }

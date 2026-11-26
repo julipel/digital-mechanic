@@ -107,3 +107,22 @@ dialog::backdrop { background: rgba(0, 0, 0, .6); }
   border-bottom: 1px solid var(--line); }
 .page-body { overflow: auto; max-height: calc(92vh - 50px); }
 .page-body img { display: block; width: 100%; height: auto; }
+
+/* Оценка тенденции (B2) */
+.trend { margin: 12px 0; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); }
+.trend h2 { margin: 0 0 6px; font-size: 15px; color: var(--muted); font-weight: 600; }
+.trend svg { width: 100%; height: auto; display: block; }
+.trend .grid { stroke: var(--line); }
+.trend .ax { font-size: 10px; fill: var(--muted); }
+.trend .thr { stroke: var(--bad); stroke-dasharray: 4 3; }
+.trend .thr-t { font-size: 10px; fill: var(--bad); }
+.trend .line { fill: none; stroke: var(--accent); stroke-width: 2; }
+.trend .pt { stroke: #fff; stroke-width: 1.5; fill: var(--grey); }
+.trend circle.pt.normal { fill: var(--ok); } .trend circle.pt.anomaly { fill: var(--bad); }
+.trend text.pt { font-size: 16px; fill: var(--grey); stroke: none; }
+.trend .pt.off { opacity: .4; }
+.trend-summary { margin: 6px 0 0; font-size: 15px; }
+.trend-summary.hot { color: var(--bad); font-weight: 600; }
+.trend details { margin-top: 4px; font-size: 14px; color: var(--muted); }
+.trend details ul { margin: 4px 0 0; padding-left: 18px; }
+.trend-caveat { margin: 4px 0 0; font-size: 13px; color: var(--muted); }

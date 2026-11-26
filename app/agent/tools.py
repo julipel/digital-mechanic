@@ -11,6 +11,7 @@
 """
 import asyncio
 import json
+from datetime import datetime
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -27,6 +28,7 @@ from app.policy.citations import CitationRegistry
 from app.policy.sanitize import sanitize_description
 from app.policy.ticket_validator import DraftInput
 from app.policy.tickets import create_draft
+from app.policy.trend import vehicle_trend
 from app.policy.urgency import LEVEL_RU, compute_urgency
 from app.retrieval.search import search as default_search
 from app.storage.events import log_event
@@ -56,6 +58,17 @@ TOOL_SCHEMAS = {
                 "required": ["query"],
                 "additionalProperties": False,
             },
+        },
+    },
+    modes.GET_TREND: {
+        "type": "function",
+        "function": {
+            "name": modes.GET_TREND,
+            "description": ("Оценка тенденции выраженности отклонения (anomaly_score) по последним проверкам "
+                            "этой машины до выбранной: точки, направление, через сколько дней при сохранении "
+                            "темпа будет порог карантина, или почему оценка не строится. Считает система; "
+                            "перескажи результат с оговорками, дату поломки не называй."),
+            "parameters": {"type": "object", "properties": {}, "additionalProperties": False},
         },
     },
     modes.DRAFT_TICKET: {
@@ -164,6 +177,8 @@ async def _execute(name: str, raw_args: str, ctx: ToolContext, offered: tuple[st
         return await _search_manual(ctx, args)
     if name == modes.DRAFT_TICKET:
         return _draft_ticket(ctx, args)
+    if name == modes.GET_TREND:
+        return _get_trend(ctx)
     return {"error": f"Неизвестный инструмент {name}"}
 
 
@@ -225,6 +240,29 @@ def _model_version(raw: str) -> str:
     """model_version — тоже строка от ML: короткая и без внедрённого текста."""
     clean = sanitize_description(raw)
     return "—" if clean.injection_detected else clean.text[:40]
+
+
+# --- get_trend -------------------------------------------------------------------------------
+
+def _get_trend(ctx: ToolContext) -> dict:
+    """Оценка тенденции на момент выбранной проверки (policy/trend). Модель её только объясняет."""
+    trend = vehicle_trend(ctx.vehicle, ctx.conv.session_id, ctx.settings.config_dir)
+    view = trend.as_dict()
+    # Модели — без календарных дат: только дни от первой точки, чтобы она не сложила
+    # «дату поломки» из даты проверки и срока. Интерфейс получает даты для графика.
+    if trend.points:
+        t0 = datetime.fromisoformat(trend.points[0].checked_at)
+        for p in view["points"]:
+            p["day"] = round((datetime.fromisoformat(p.pop("checked_at")) - t0).total_seconds() / 86400)
+    view["caveats"] = [c for c in view["caveats"] if not c[:2].isdigit()]   # пометки с датами «дд.мм: …»
+    log_event(ctx.settings.db_path, "trend_computed", vehicle_id=ctx.conv.vehicle_id,
+              session_id=ctx.conv.session_id,
+              data={"built": trend.built, "n_points": trend.n_points, "direction": trend.direction,
+                    "days_to_threshold": trend.days_to_threshold, "threshold_reached": trend.threshold_reached})
+    view["note"] = ("Это оценка тенденции системой, не прогноз поломки. Назови число точек и оговорку; "
+                    "если built=false — объясни причину и не строй прогноз сам.")
+    ctx.ui_events.append({"type": "trend", **trend.as_dict()})
+    return view
 
 
 # --- search_manual ---------------------------------------------------------------------------

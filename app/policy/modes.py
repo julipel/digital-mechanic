@@ -26,6 +26,7 @@ from app.policy.settings import load_policy
 GET_DIAGNOSIS = "get_diagnosis"
 SEARCH_MANUAL = "search_manual"
 DRAFT_TICKET = "draft_ticket"
+GET_TREND = "get_trend"
 
 NO_CHECK = "no_check"
 CHECK_FAILED = "check_failed"
@@ -41,13 +42,15 @@ W_LOW_CONFIDENCE = "low_confidence"
 W_INJECTION = "injection_detected"
 W_ML_INCONSISTENT = "ml_inconsistent"
 
+# get_trend (оценка тенденции, B2) — вывод о двигателе по ряду проверок, поэтому его нет
+# при сбое записи (правило 4) и при коде, противоречащем двигателю (значение недостоверно).
 _TOOLS = {
     NO_CHECK: (GET_DIAGNOSIS, SEARCH_MANUAL),
     CHECK_FAILED: (SEARCH_MANUAL,),
     ML_INCONSISTENT: (SEARCH_MANUAL,),
-    NORMAL: (SEARCH_MANUAL,),
-    ANOMALY: (SEARCH_MANUAL, DRAFT_TICKET),
-    ANOMALY_LOW_CONFIDENCE: (SEARCH_MANUAL, DRAFT_TICKET),
+    NORMAL: (SEARCH_MANUAL, GET_TREND),
+    ANOMALY: (SEARCH_MANUAL, GET_TREND, DRAFT_TICKET),
+    ANOMALY_LOW_CONFIDENCE: (SEARCH_MANUAL, GET_TREND, DRAFT_TICKET),
 }
 
 

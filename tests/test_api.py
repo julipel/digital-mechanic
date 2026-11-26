@@ -191,3 +191,16 @@ def test_earlier_anomaly_shown_when_last_check_is_normal(client_for):
     # пометка — только показ: машины, где отклонений не было, без неё
     assert all(v["earlier_anomaly"] is None or v["earlier_anomaly"]["session_id"] != v["last_check"]["session_id"]
                for v in vehicles.values())
+
+
+def test_trend_endpoint_as_of_selected_check(client_for):
+    client, model, _ = client_for()
+    latest = client.get("/api/vehicles/B418HK98/trend").json()
+    assert latest["built"] and latest["label"] == "Оценка тенденции" and latest["n_points"] == 3
+    # на момент первой проверки точек меньше трёх — прогноза нет, причина названа
+    first = client.get("/api/vehicles/B418HK98").json()["sessions"][-1]["session_id"]
+    early = client.get(f"/api/vehicles/B418HK98/trend?session_id={first}").json()
+    assert early["built"] is False and "Мало проверок" in early["reason"]
+    assert client.get("/api/vehicles/B418HK98/trend?session_id=S-0003").status_code == 404   # чужая проверка
+    assert client.get("/api/vehicles/b418hk98/trend").status_code == 404
+    assert model.calls == []                                                               # без модели

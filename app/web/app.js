@@ -48,6 +48,11 @@ const T = {
   errNetwork: "Нет связи с сервером — повторите",
   errGeneric: "Ошибка: {msg}",
   page: "{manual}, стр. {page}",
+  trendTitle: "Выраженность отклонения по проверкам",
+  trendLabel: "{label} · точек в расчёте: {n}",
+  trendNotBuilt: "Оценка тенденции не строится: {reason}",
+  trendThreshold: "порог карантина {t}",
+  trendFailed: "сбой",
 };
 
 const $ = (id) => document.getElementById(id);
@@ -154,11 +159,60 @@ async function openVehicle(id) {
     eb.innerHTML = `<span>${esc(earlierText(ea))}${ea.anomaly_title ? " — " + esc(ea.anomaly_title) : ""}</span>`
       + `<span class="go">${esc(fmt(T.earlierOpen, { id: ea.session_id }))} →</span>`;
     eb.onclick = () => {
-      if (sel.value !== ea.session_id) { sel.value = ea.session_id; resetConversation(); }
+      if (sel.value !== ea.session_id) { sel.value = ea.session_id; resetConversation(); loadTrend(); }
       $("diagnose").focus();
     };
   }
   show("vehicle");
+  loadTrend();
+}
+
+// --- оценка тенденции (B2): считает сервер (policy/trend), здесь только рисуем ----------------
+async function loadTrend() {
+  const v = state.vehicle, sid = $("session").value;
+  $("trend").hidden = true;
+  if (!v || !sid) return;
+  const res = await api(`/api/vehicles/${encodeURIComponent(v.vehicle_id)}/trend?session_id=${encodeURIComponent(sid)}`);
+  if (!res.ok || state.vehicle !== v || $("session").value !== sid) return;   // пока ждали, выбрали другое
+  renderTrend(await res.json());
+}
+
+function renderTrend(t) {
+  if (!t.points.length) return;
+  $("trend-chart").innerHTML = trendSvg(t);
+  $("trend-summary").textContent = t.built ? t.summary : fmt(T.trendNotBuilt, { reason: t.reason });
+  $("trend-summary").className = "trend-summary" + (t.built && (t.threshold_reached || t.days_to_threshold != null) ? " hot" : "");
+  $("trend-label").textContent = fmt(T.trendLabel, { label: t.label, n: t.n_points });
+  // главная оговорка («это не дата поломки») — всегда на виду, остальное — под «подробнее»
+  $("trend-caveat").textContent = t.built ? t.caveats[0] : "";
+  $("trend-caveat").hidden = !t.built;
+  const notes = t.built ? t.caveats.slice(1) : t.points.filter((p) => p.note).map((p) => `${day(p.checked_at)}: ${p.note}.`);
+  $("trend-caveats").replaceChildren(...notes.map((c) => { const li = document.createElement("li"); li.textContent = c; return li; }));
+  $("trend-more").hidden = notes.length === 0 && !t.built;
+  $("trend").hidden = false;
+}
+
+// SVG: ось X — даты (по времени), Y — 0…1. Точки в расчёте соединены линией; разрывы ряда — бледнее.
+function trendSvg(t) {
+  const W = 320, H = 150, L = 30, R = 10, TOP = 10, B = 26;
+  const pts = t.points, ts = pts.map((p) => new Date(p.checked_at).getTime());
+  const t0 = Math.min(...ts), span = Math.max(...ts) - t0 || 1;
+  const x = (ms) => pts.length === 1 ? (L + W - R) / 2 : L + (ms - t0) / span * (W - L - R);
+  const y = (v) => TOP + (1 - v) * (H - TOP - B);
+  let g = "";
+  for (const v of [0, 0.5, 1]) g += `<line class="grid" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text class="ax" x="${L - 4}" y="${y(v) + 4}" text-anchor="end">${num(v).replace(",00", "")}</text>`;
+  g += `<line class="thr" x1="${L}" x2="${W - R}" y1="${y(t.threshold)}" y2="${y(t.threshold)}"/>`
+    + `<text class="thr-t" x="${W - R}" y="${y(t.threshold) - 4}" text-anchor="end">${esc(fmt(T.trendThreshold, { t: num(t.threshold) }))}</text>`;
+  const used = pts.map((p, i) => [p, ts[i]]).filter(([p]) => p.used && p.anomaly_score != null);
+  if (used.length > 1) g += `<polyline class="line" points="${used.map(([p, ms]) => `${x(ms)},${y(p.anomaly_score)}`).join(" ")}"/>`;
+  pts.forEach((p, i) => {
+    const cx = x(ts[i]), cls = `pt ${esc(p.status)}${p.used ? "" : " off"}`;
+    g += p.anomaly_score == null
+      ? `<text class="${cls}" x="${cx}" y="${y(0) - 3}" text-anchor="middle">×</text>`
+      : `<circle class="${cls}" cx="${cx}" cy="${y(p.anomaly_score)}" r="5"><title>${esc(day(p.checked_at))}: ${num(p.anomaly_score)}</title></circle>`;
+    g += `<text class="ax" x="${cx}" y="${H - 8}" text-anchor="middle">${esc(day(p.checked_at))}</text>`;
+  });
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(T.trendTitle)}">${g}</svg>`;
 }
 
 function resetConversation() {
@@ -334,6 +388,7 @@ async function turn(path, body, userText) {
       if (ev.type === "conversation") state.conversationId = ev.conversation_id;
       else if (ev.type === "diagnosis") renderVerdict(ev);
       else if (ev.type === "draft") renderDraft(ev);
+      else if (ev.type === "trend") renderTrend(ev);
       else if (ev.type === "delta") { text += ev.text; answer.textContent = text; }
       else if (ev.type === "done") {
         answer.classList.remove("pending");
@@ -371,7 +426,7 @@ function ask(text, scenario = "question") {
 // --- обработчики ---------------------------------------------------------------------------
 $("search").addEventListener("input", renderFleet);
 $("back").onclick = () => { location.hash = ""; };
-$("session").onchange = resetConversation;          // другая проверка — новый диалог
+$("session").onchange = () => { resetConversation(); loadTrend(); };   // другая проверка — новый диалог
 $("diagnose").onclick = () => {
   resetConversation();
   turn("/api/diagnose", { vehicle_id: state.vehicle.vehicle_id, session_id: $("session").value }, T.diagnose);

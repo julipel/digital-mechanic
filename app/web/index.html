@@ -37,6 +37,17 @@
       </label>
       <button id="diagnose" class="primary big" data-t="diagnose"></button>
 
+      <section id="trend" class="trend" hidden aria-labelledby="trend-title">
+        <h2 id="trend-title" data-t="trendTitle"></h2>
+        <div id="trend-chart"></div>
+        <p id="trend-summary" class="trend-summary"></p>
+        <p id="trend-caveat" class="trend-caveat" hidden></p>
+        <details id="trend-more">
+          <summary id="trend-label"></summary>
+          <ul id="trend-caveats"></ul>
+        </details>
+      </section>
+
       <article id="verdict" class="verdict" hidden></article>
 
       <div id="chat" class="chat" aria-live="polite"></div>

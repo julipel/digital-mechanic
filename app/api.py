@@ -3,6 +3,8 @@
 Роуты:
 - GET  /api/vehicles                    — парк: госномер, модель, двигатель, последняя проверка;
 - GET  /api/vehicles/{id}               — карточка, история проверок (новые сверху), наши заявки;
+- GET  /api/vehicles/{id}/trend?session_id= — оценка тенденции anomaly_score на момент проверки
+                                          (policy/trend, без модели) — для графика в карточке;
 - POST /api/diagnose                    — кнопка «Получить результат диагностики»: новый диалог
                                           и ход агента (SSE). Что вызвать — решает агент (F5);
 - POST /api/chat                        — сообщение механика в диалоге (SSE);
@@ -32,6 +34,7 @@ from app.integrations.fleet import Fleet, Vehicle
 from app.integrations.ml_client import DiagnosticsService
 from app.integrations.toir_client import TicketService
 from app.policy.tickets import TicketError, cancel_draft, confirm_draft
+from app.policy.trend import vehicle_trend
 from app.retrieval.pages import PageNotFound, RateLimiter, render_page
 from app.retrieval.search import search as default_search
 from app.storage import tickets as ticket_store
@@ -141,6 +144,16 @@ def build_router(services: Services) -> APIRouter:
                    for t in ticket_store.list_tickets(s.db_path, vehicle_id)]
         return {**_vehicle_summary(v, ticket_store.created_ticket_ids(s.db_path)), "sessions": [_session_view(x) for x in reversed(v.sessions)],
                 "tickets": tickets}
+
+    @router.get("/vehicles/{vehicle_id}/trend")
+    def trend(vehicle_id: str, session_id: str | None = None):
+        v = services.fleet().get(vehicle_id)
+        if v is None:
+            raise HTTPException(404, "Машина не найдена")
+        try:
+            return vehicle_trend(v, session_id, s.config_dir).as_dict()
+        except KeyError:
+            raise HTTPException(404, "Проверка не найдена у этой машины") from None
 
     def stream(conv: Conversation, text: str, scenario: str) -> StreamingResponse:
         if conv.conversation_id in services.busy:
