@@ -14,6 +14,19 @@ TOIR_URL = "http://mock-toir.test"
 HAS_DATA = (MOCKS_DIR / "data" / "vehicles.json").exists()
 needs_data = pytest.mark.skipif(not HAS_DATA, reason="нет mocks/data/vehicles.json (не публикуется в git)")
 
+# Реальная база знаний внешняя (CLAUDE.md, «База знаний — внешняя»): тесты по настоящим PDF
+# и индексу работают, только если в .env заданы KB_DIR (с kb.yaml) и INDEX_DIR.
+_ENV = Settings()
+HAS_KB = _ENV.kb_dir is not None and (_ENV.kb_dir / "kb.yaml").exists()
+HAS_INDEX = HAS_KB and _ENV.index_dir is not None and (_ENV.index_dir / "chunks.jsonl").exists()
+needs_kb = pytest.mark.skipif(not HAS_KB, reason="KB_DIR не задан или в нём нет kb.yaml")
+needs_index = pytest.mark.skipif(not HAS_INDEX, reason="нет индекса в INDEX_DIR: python scripts/build_index.py")
+
+
+def kb_settings() -> Settings:
+    """Настройки из .env — для тестов с маркерами needs_kb / needs_index."""
+    return _ENV
+
 
 class RoutingTransport(httpx.AsyncBaseTransport):
     """Направляет запрос в нужное ASGI-приложение по хосту."""
@@ -45,8 +58,9 @@ def fixed_response(status_code: int, body) -> httpx.MockTransport:
 
 @pytest.fixture
 def settings(tmp_path) -> Settings:
+    # доступ задаём явно: переменные окружения ОС (APP_PASSWORD, AUTH_DISABLED) не должны влиять
     return Settings(_env_file=None, mock_ml_url=ML_URL, mock_toir_url=TOIR_URL,
-                    db_path=tmp_path / "test.sqlite")
+                    db_path=tmp_path / "test.sqlite", app_password=None, auth_disabled=False)
 
 
 @pytest.fixture

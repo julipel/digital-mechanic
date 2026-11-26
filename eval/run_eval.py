@@ -53,7 +53,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.bm25_only:
         settings = settings.model_copy(update={"embedding_model": ""})
     fleet = load_fleet(settings.vehicles_path, settings.config_dir, settings.fault_types_path)
-    manuals = manuals_by_id(settings.config_dir)
+    manuals = manuals_by_id(settings.require_kb_dir())
     index = get_index(settings)
     golden = load_golden()
 
@@ -70,7 +70,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"[{q['id']}] в наборе {q['engine_family']}, у машины {vehicle.engine_family}")
             return 2
         result = search(q["question"], vehicle.engine_family, settings, k=args.k,
-                        scenario="question", index=index)
+                        scenario="question", index=index, vehicle_id=q["vehicle_id"])
         mode = result.mode
         bad = [h for h in result.hits if manuals[h.doc_id].engine_family != vehicle.engine_family]
         foreign += len(bad)
@@ -103,7 +103,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"прошлый прогон ({prev['ts']}, {prev['mode']}): hit@1 = {prev['hit1']}, hit@5 = {prev['hit5']}")
 
     if not args.no_history:
-        manifest = json.loads((settings.index_dir / "manifest.json").read_text(encoding="utf-8"))
+        manifest = json.loads((settings.require_index_dir() / "manifest.json").read_text(encoding="utf-8"))
         new_file = not HISTORY.exists()
         with HISTORY.open("a", encoding="utf-8", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=HISTORY_FIELDS)

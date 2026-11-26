@@ -1,8 +1,8 @@
 """Индексация руководств: номера страниц, колонтитулы, нарезка, применимость кодов.
 
-Часть тестов работает на синтетических строках (без PDF). Тесты по настоящим PDF и
-построенному индексу пропускаются, если их нет (PDF и index/ в git не публикуются):
-    python scripts/build_index.py --no-embed
+Часть тестов работает на синтетических строках и синтетических описаниях документов (без базы
+знаний). Тесты по настоящим PDF и индексу пропускаются без KB_DIR / INDEX_DIR (база знаний
+внешняя, в репозитории её нет). В тестах — только doc_id, страницы и короткие ключевые слова.
 """
 import json
 import re
@@ -11,24 +11,29 @@ from collections import defaultdict
 import pymupdf
 import pytest
 
-from app.config import get_settings
 from app.policy.applicability import load_table
 from app.retrieval.chunk import chunk_document, is_heading, page_has_table
 from app.retrieval.extract import Line, PageText, clean_page, merge_rows
 from app.retrieval.manuals import Manual, load_manuals, manuals_by_id
+from tests.conftest import HAS_KB, kb_settings, needs_index, needs_kb
 
-S = get_settings()
-MANUALS = load_manuals(S.config_dir)
-CHUNKS_FILE = S.index_dir / "chunks.jsonl"
-HAS_PDF = all((S.manuals_dir / m.file).exists() for m in MANUALS)
-HAS_INDEX = CHUNKS_FILE.exists()
-needs_pdf = pytest.mark.skipif(not HAS_PDF, reason="нет PDF в data/manuals/")
-needs_index = pytest.mark.skipif(not HAS_INDEX, reason="индекс не построен: python scripts/build_index.py --no-embed")
+S = kb_settings()
+MANUALS = load_manuals(S.kb_dir) if HAS_KB else ()
+CHUNKS_FILE = S.index_dir / "chunks.jsonl" if S.index_dir else None
+needs_pdf = needs_kb
 
 H = 842.0  # высота страницы A4 в pt
-RE536 = manuals_by_id(S.config_dir)["yamz536_re"]
-RK536 = manuals_by_id(S.config_dir)["yamz536_rk"]
-ZMZ = manuals_by_id(S.config_dir)["zmz5234_rk"]
+# Синтетические описания документов: правила извлечения как у настоящих, без базы знаний.
+RE536 = Manual(doc_id="yamz536_re", manual="536.3902150 РЭ", file="re536.pdf", engine_family="yamz-536",
+               kind="РЭ", pages=285, page_number_offset=-1)
+RK536 = Manual(doc_id="yamz536_rk", manual="536.01.02 РК", file="rk536.pdf", engine_family="yamz-536",
+               kind="РК", pages=603, page_number_offset=None, title_band=(70, 100),
+               strip_patterns=(r"^Руководство по ремонту$", r"^двигателей ЯМЗ-536", r"^\d{4}-\d\d-\d\d$",
+                               r"^Страница \d+$", r"^\d{3}-\d\d-\d{6}-\d{3}$"))
+ZMZ = Manual(doc_id="zmz5234_rk", manual="ЗМЗ-5234.10 РК", file="zmz.pdf", engine_family="zmz-5234",
+             kind="РК", pages=158, page_number_offset=0)
+RE236 = Manual(doc_id="yamz236_re", manual="236-3902150-Б РЭ", file="re236.pdf", engine_family="yamz-236",
+               kind="РЭ", pages=172, page_number_offset=0)
 
 
 def line(text, y, size=10.0, bold=False, x0=50.0, x1=None):
@@ -42,6 +47,7 @@ def chunks():
 
 # --- справочник -----------------------------------------------------------------------------
 
+@needs_kb
 def test_manuals_config_matches_tz():
     by_family = defaultdict(set)
     for m in MANUALS:
@@ -55,7 +61,7 @@ def test_manuals_config_matches_tz():
 @needs_pdf
 @pytest.mark.parametrize("manual", MANUALS, ids=lambda m: m.doc_id)
 def test_pdf_page_count(manual: Manual):
-    with pymupdf.open(S.manuals_dir / manual.file) as doc:
+    with pymupdf.open(S.kb_dir / manual.file) as doc:
         assert doc.page_count == manual.pages
 
 
@@ -78,28 +84,28 @@ def test_536_rk_header_footer_and_card_title():
     raw = [
         line("Руководство по ремонту", 35, 11, bold=True),
         line("двигателей ЯМЗ-536, ЯМЗ-5361,", 47, 11, bold=True),
-        line("Снятие клапана заслонки EGR", 78, 10.1, x0=420),
+        line("Снятие узла X", 78, 10.1, x0=420),
         line("Порядок работ", 130, 13.9, bold=True),
         line("Отвернуть болты 1.", 160),
-        line("536-20-010000-040", 756, x0=462),
+        line("000-00-000000-000", 756, x0=462),
         line("2013-02-12", 795, x0=426, x1=480),
         line("Страница 2", 795, x0=494),
     ]
     page = clean_page(raw, 101, H, RK536)
-    assert page.title == "Снятие клапана заслонки EGR"
+    assert page.title == "Снятие узла X"
     assert page.text == "Порядок работ\nОтвернуть болты 1."
 
 
 def test_merge_rows_joins_words_and_table_cells():
     merged = merge_rows([line("Гайки", 100, x0=50, x1=80), line("крепления", 100, x0=83, x1=130),
-                         line("98…107,8", 100, x0=400, x1=450), line("Следующая", 115)])
-    assert [l.text for l in merged] == ["Гайки крепления | 98…107,8", "Следующая"]
+                         line("11…22,3", 100, x0=400, x1=450), line("Следующая", 115)])
+    assert [l.text for l in merged] == ["Гайки крепления | 11…22,3", "Следующая"]
 
 
 # --- нарезка ---------------------------------------------------------------------------------
 
 def test_table_page_is_one_chunk_and_never_crosses_page():
-    rows = [line(f"Болт {i} | {90 + i}…{100 + i},5 (9…10)", 100 + 12 * i) for i in range(40)]
+    rows = [line(f"Болт {i} | {10 + i}…{20 + i},5 (1…2)", 100 + 12 * i) for i in range(40)]
     pages = [
         PageText(1, [line("Таблица 23", 80)] + rows),
         PageText(2, [line("ОБЩИЕ СВЕДЕНИЯ", 60, 14, bold=True)] + [line("текст " * 12, 80 + 12 * i) for i in range(40)]),
@@ -132,7 +138,7 @@ def _page_text(chunks, doc_id, page):
 
 @needs_index
 def test_index_chunk_metadata(chunks):
-    by_id = manuals_by_id(S.config_dir)
+    by_id = manuals_by_id(S.kb_dir)
     assert len({c["chunk_id"] for c in chunks}) == len(chunks)
     for c in chunks:
         m = by_id[c["doc_id"]]
@@ -143,11 +149,12 @@ def test_index_chunk_metadata(chunks):
 
 @needs_index
 def test_known_pages(chunks):
-    assert "0,20…0,30 мм" in _page_text(chunks, "zmz5234_rk", 21)
+    p21 = _page_text(chunks, "zmz5234_rk", 21).lower()
+    assert "зазор" in p21 and "коромысл" in p21
     assert "ПОСТОРОННИЙ СТУК" in _page_text(chunks, "yamz536_re", 186)
     p214 = _page_text(chunks, "yamz536_re", 214)
     assert "ПОСТОРОННИЙ СТУК" in p214 and "Негерметична система" in p214
-    assert "98…107,8 (10…11)" in _page_text(chunks, "zmz5234_rk", 137)
+    assert "Моменты затяжки" in _page_text(chunks, "zmz5234_rk", 137)
 
 
 @needs_index
@@ -165,15 +172,17 @@ def test_printed_page_numbers_and_536_rk_footers_removed(chunks):
 
 @needs_index
 def test_applicability_confirmed_by_manual_text(chunks):
-    """Каждый «неприменимый» код подтверждён: цитата об устройстве есть на указанной странице,
-    а характерных терминов узла нет ни в одном фрагменте документов этого двигателя."""
+    """Каждый «неприменимый» код подтверждён: ключевые слова об устройстве есть на указанной
+    странице, а характерных терминов узла нет ни в одном фрагменте документов этого двигателя."""
     norm = lambda s: re.sub(r"\s+", " ", s.replace(" | ", " ")).lower()
-    for family, codes in load_table(S.config_dir).items():
+    for family, codes in load_table(S.config_dir).items():  # таблица применимости — в репозитории
         family_chunks = [c for c in chunks if c["engine_family"] == family]
         for code, entry in codes.items():
             assert entry["confirmed"] and entry["evidence"], (family, code)
             for ev in entry["evidence"]:
-                assert norm(ev["quote"]) in norm(_page_text(chunks, ev["doc_id"], ev["pdf_page"])), (family, code, ev)
+                page = norm(_page_text(chunks, ev["doc_id"], ev["pdf_page"]))
+                assert ev["keywords"] and all(norm(k) in page for k in ev["keywords"]), (family, code, ev)
+                assert all(len(k.split()) <= 3 for k in ev["keywords"]), "не цитаты, а ключевые слова"
             for term in entry["absent_terms"]:
                 hits = [c["chunk_id"] for c in family_chunks if re.search(term, c["text"], re.IGNORECASE)]
                 assert not hits, (family, code, term, hits[:3])
@@ -198,9 +207,8 @@ def test_ocr_page_strips_page_number_and_footers():
     from app.retrieval.build import ocr_page
     page = ocr_page(RK536, 101, "Руководство по ремонту\nОтвернуть болты\nСтраница 2\n", title="Карта")
     assert page.pdf_page == 101 and page.source == "ocr" and page.text == "Отвернуть болты"
-    re236 = manuals_by_id(S.config_dir)["yamz236_re"]
-    page = ocr_page(re236, 69, "Гайка | 100-140 (10-14)\n69\n", title=None)
-    assert page.text == "Гайка | 100-140 (10-14)"
+    page = ocr_page(RE236, 69, "Гайка | 11-22 (1-2)\n69\n", title=None)
+    assert page.text == "Гайка | 11-22 (1-2)"
 
 
 def test_ocr_files_outside_scan_pages_are_ignored(tmp_path, monkeypatch):
@@ -215,7 +223,7 @@ def test_ocr_files_outside_scan_pages_are_ignored(tmp_path, monkeypatch):
         (ocr / name).write_text(f"текст {name}", encoding="utf-8")
     monkeypatch.setattr(build, "extract_pdf", lambda pdf, m: [PageText(i, [line(f"стр {i}", 100)]) for i in (1, 2, 3)])
     monkeypatch.setattr(build, "_file_hash", lambda pdf: "x")
-    settings = S.model_copy(update={"index_dir": tmp_path, "manuals_dir": tmp_path})
+    settings = S.model_copy(update={"index_dir": tmp_path, "kb_dir": tmp_path})
     logged = []
     pages = build.load_pages(manual, settings, log=logged.append)
     assert [p.text for p in pages] == ["стр 1", "текст p002.txt", "стр 3"]

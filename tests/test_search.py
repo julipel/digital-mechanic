@@ -1,4 +1,5 @@
-"""Поиск: фильтр по двигателю ставит код (правило 3), BM25 работает без эмбеддингов."""
+"""Поиск: фильтр по двигателю ставит код (правило 3), BM25 работает без эмбеддингов.
+Тексты фрагментов и числа выдуманы: нормативы руководств в репозиторий не кладём."""
 import json
 
 import numpy as np
@@ -6,6 +7,7 @@ import pytest
 
 from app.config import Settings
 from app.retrieval.search import SearchIndex, rrf, search, tokenize
+from tests.conftest import kb_settings, needs_index
 
 
 def _chunk(cid, family, page, text):
@@ -17,10 +19,10 @@ def _chunk(cid, family, page, text):
 @pytest.fixture
 def tiny_index(tmp_path):
     chunks = [
-        _chunk("a-1", "fam-a", 1, "Зазор между коромыслом и клапаном 0,25-0,30 мм"),
-        _chunk("a-2", "fam-a", 2, "Давление масла на прогретом двигателе 400-700 кПа"),
-        _chunk("b-1", "fam-b", 7, "Зазор между коромыслом и клапаном 0,20-0,30 мм"),
-        _chunk("b-2", "fam-b", 8, "Сигнализатор аварийного давления масла загорается при 40-80 кПа"),
+        _chunk("a-1", "fam-a", 1, "Зазор между коромыслом и клапаном 1,11-2,22 мм"),
+        _chunk("a-2", "fam-a", 2, "Давление масла на прогретом двигателе 111-222 кПа"),
+        _chunk("b-1", "fam-b", 7, "Зазор между коромыслом и клапаном 3,33-4,44 мм"),
+        _chunk("b-2", "fam-b", 8, "Сигнализатор аварийного давления масла загорается при 33-44 кПа"),
     ]
     # фон: в семействе из 2 фрагментов IDF у BM25 Okapi равен нулю, нужен «корпус»
     fillers = ["Порядок работы цилиндров", "Заправочные ёмкости", "Электрооборудование", "Сцепление"]
@@ -47,7 +49,7 @@ def test_only_family_documents_returned(tiny_index, no_llm):
 
 def test_other_family_never_leaks_even_on_exact_match(tiny_index, no_llm):
     # запрос дословно из документа fam-b, но машина с двигателем fam-a
-    result = search("Сигнализатор аварийного давления масла загорается при 40-80 кПа", "fam-a",
+    result = search("Сигнализатор аварийного давления масла загорается при 33-44 кПа", "fam-a",
                     no_llm, k=10, index=tiny_index)
     assert all(h.chunk_id.startswith("a-") for h in result.hits)
 
@@ -84,15 +86,13 @@ def test_rrf_prefers_agreement():
 
 def test_tokenize_stems_russian_forms():
     assert tokenize("зазоры")[0] == tokenize("зазоров")[0] == tokenize("зазор")[0]
-    assert "0,25" in tokenize("зазор 0,25 мм")
+    assert "1,11" in tokenize("зазор 1,11 мм")
 
 
-INDEX_DIR = Settings(_env_file=None).index_dir
-
-
-@pytest.mark.skipif(not (INDEX_DIR / "chunks.jsonl").exists(), reason="индекс не построен")
+@needs_index
 def test_real_index_bm25_known_page(no_llm):
-    settings = no_llm.model_copy(update={"index_dir": INDEX_DIR})
+    env = kb_settings()
+    settings = no_llm.model_copy(update={"index_dir": env.index_dir, "kb_dir": env.kb_dir})
     result = search("зазор между коромыслом и стержнем клапана на холодном двигателе", "zmz-5234",
                     settings, k=5)
     assert ("zmz5234_rk", 21) in {(h.doc_id, h.pdf_page) for h in result.hits}
@@ -116,3 +116,10 @@ def test_index_must_match_manuals_registry(tiny_index):
     from app.retrieval.search import check_families
     with pytest.raises(ValueError):
         check_families(tiny_index, {})
+
+
+def test_unknown_family_in_manifest_rejected():
+    from app.retrieval.manuals import Manual, check_families_known
+    m = Manual(doc_id="d", manual="M", file="d.pdf", engine_family="yamz-999", kind="РЭ", pages=1)
+    with pytest.raises(ValueError):
+        check_families_known((m,), {"yamz-236"})

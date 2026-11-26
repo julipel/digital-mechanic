@@ -1,7 +1,7 @@
 """Распознавание страниц-сканов vision-моделью (VISION_MODEL из .env) — один раз при индексации.
 
-Какие страницы — поле scan_pages в config/manuals.json. Результат кешируется в
-index/ocr/{doc_id}/p{NNN}.txt и при следующей сборке индекса попадает во фрагменты
+Какие страницы — поле scan_pages в манифесте KB_DIR/kb.yaml. Результат кешируется в
+INDEX_DIR/ocr/{doc_id}/p{NNN}.txt и при следующей сборке индекса попадает во фрагменты
 с source=ocr. Цифры из распознанных таблиц надо сверить с картинкой вручную.
 
     python scripts/ocr_scans.py            # распознать то, чего ещё нет в кеше
@@ -42,12 +42,12 @@ def main() -> None:
     if not settings.vision_model:
         raise LLMNotConfigured("VISION_MODEL не задан в .env")
     client = get_client(settings)
-    for manual in load_manuals(settings.config_dir):
+    for manual in load_manuals(settings.require_kb_dir()):
         if not manual.scan_pages:
             continue
-        out_dir = settings.index_dir / "ocr" / manual.doc_id
+        out_dir = settings.require_index_dir() / "ocr" / manual.doc_id
         out_dir.mkdir(parents=True, exist_ok=True)
-        with pymupdf.open(settings.manuals_dir / manual.file) as doc:
+        with pymupdf.open(settings.require_kb_dir() / manual.file) as doc:
             for n in manual.scan_pages:
                 out = out_dir / f"p{n:03d}.txt"
                 if out.exists() and not args.force:

@@ -5,6 +5,12 @@
 **/__pycache__
 .pytest_cache
 data/manuals
+kb
+**/kb.yaml
+kb.example.yaml
+demo_kb
+eval
+tests
 **/*.[pP][dD][fF]
 index
 var

@@ -1,6 +1,7 @@
 """Построение индекса: PDF → страницы → фрагменты → эмбеддинги.
 
-Файлы в index/ (в git не попадают):
+PDF и манифест — в KB_DIR, результат — в INDEX_DIR; оба каталога вне репозитория и образа.
+Файлы в INDEX_DIR:
 - pages/{doc_id}.json      — кеш извлечённых страниц (ключ — хэш PDF + версия извлечения);
 - ocr/{doc_id}/p{NNN}.txt  — распознанные vision-моделью сканы (scripts/ocr_scans.py);
 - chunks.jsonl             — фрагменты с метаданными;
@@ -22,7 +23,8 @@ import numpy as np
 from app.config import Settings
 from app.retrieval.chunk import Chunk, chunk_document
 from app.retrieval.extract import Line, PageText, extract_pdf
-from app.retrieval.manuals import Manual, load_manuals
+from app.integrations.fleet import load_engine_families
+from app.retrieval.manuals import Manual, check_families_known, load_manuals
 
 EXTRACT_VERSION = 3      # поменять при изменении extract.py — кеш страниц пересоберётся
 EMBED_BATCH = 64
@@ -33,7 +35,7 @@ def _file_hash(path: Path) -> str:
     with path.open("rb") as f:
         for block in iter(lambda: f.read(1 << 20), b""):
             h.update(block)
-    return h.hexdigest()[:16]
+    return h.hexdigest()
 
 
 def text_hash(text: str, model: str) -> str:
@@ -43,11 +45,14 @@ def text_hash(text: str, model: str) -> str:
 def load_pages(manual: Manual, settings: Settings, *, log=print) -> list[PageText]:
     """Страницы документа из кеша или PDF; проверяет число страниц по справочнику;
     подставляет распознанные сканы из index/ocr/ (source=ocr)."""
-    pdf = settings.manuals_dir / manual.file
-    cache = settings.index_dir / "pages" / f"{manual.doc_id}.json"
+    pdf = settings.require_kb_dir() / manual.file
+    cache = settings.require_index_dir() / "pages" / f"{manual.doc_id}.json"
+    pdf_hash = _file_hash(pdf)
+    if manual.sha256 and manual.sha256.lower() != pdf_hash:
+        raise ValueError(f"{manual.doc_id}: sha256 файла {manual.file} не совпадает с kb.yaml")
     # в ключе — PDF, версия кода извлечения и правила документа из справочника
     rules = manual.model_dump_json(include={"page_number_offset", "strip_patterns", "title_band"})
-    key = f"{_file_hash(pdf)}:{EXTRACT_VERSION}:{hashlib.sha256(rules.encode()).hexdigest()[:8]}"
+    key = f"{pdf_hash[:16]}:{EXTRACT_VERSION}:{hashlib.sha256(rules.encode()).hexdigest()[:8]}"
     pages: list[PageText] | None = None
     if cache.exists():
         data = json.loads(cache.read_text(encoding="utf-8"))
@@ -65,7 +70,7 @@ def load_pages(manual: Manual, settings: Settings, *, log=print) -> list[PageTex
     if len(pages) != manual.pages:
         raise ValueError(f"{manual.doc_id}: в PDF {len(pages)} стр., в справочнике {manual.pages}")
 
-    ocr_dir = settings.index_dir / "ocr" / manual.doc_id
+    ocr_dir = settings.require_index_dir() / "ocr" / manual.doc_id
     for n in manual.scan_pages:
         # номер страницы — только из справочника scan_pages, имя файла его не задаёт
         txt = ocr_dir / f"p{n:03d}.txt"
@@ -95,7 +100,9 @@ def ocr_page(manual: Manual, n: int, text: str, *, title: str | None) -> PageTex
 
 def build_chunks(settings: Settings, *, log=print) -> list[Chunk]:
     chunks: list[Chunk] = []
-    for manual in load_manuals(settings.config_dir):
+    manuals = load_manuals(settings.require_kb_dir())
+    check_families_known(manuals, set(load_engine_families(settings.config_dir).values()))
+    for manual in manuals:
         pages = load_pages(manual, settings, log=log)
         doc_chunks = chunk_document(manual, pages)
         log(f"  {manual.doc_id}: {len(doc_chunks)} фрагментов")
@@ -118,7 +125,7 @@ def build_embeddings(chunks: list[Chunk], settings: Settings, *, log=print) -> n
         return None
     from app.integrations.llm import embed, get_client
 
-    cache_path = settings.index_dir / "emb_cache.npz"
+    cache_path = settings.require_index_dir() / "emb_cache.npz"
     cache: dict[str, np.ndarray] = {}
     if cache_path.exists():
         data = np.load(cache_path)
@@ -141,13 +148,14 @@ def build_embeddings(chunks: list[Chunk], settings: Settings, *, log=print) -> n
 
 def build_index(settings: Settings, *, embeddings: bool = True, log=print) -> dict:
     started = time.perf_counter()
-    settings.index_dir.mkdir(parents=True, exist_ok=True)
+    index_dir = settings.require_index_dir()
+    index_dir.mkdir(parents=True, exist_ok=True)
     chunks = build_chunks(settings, log=log)
-    with (settings.index_dir / "chunks.jsonl").open("w", encoding="utf-8") as f:
+    with (index_dir / "chunks.jsonl").open("w", encoding="utf-8") as f:
         for c in chunks:
             f.write(json.dumps(c.to_dict(), ensure_ascii=False) + "\n")
     matrix = build_embeddings(chunks, settings, log=log) if embeddings else None
-    emb_file = settings.index_dir / "embeddings.npy"
+    emb_file = index_dir / "embeddings.npy"
     if matrix is not None:
         np.save(emb_file, matrix)
     elif emb_file.exists():
@@ -155,10 +163,10 @@ def build_index(settings: Settings, *, embeddings: bool = True, log=print) -> di
     manifest = {
         "built_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "chunks": len(chunks),
-        "by_doc": {m.doc_id: sum(c.doc_id == m.doc_id for c in chunks) for m in load_manuals(settings.config_dir)},
+        "by_doc": {m.doc_id: sum(c.doc_id == m.doc_id for c in chunks) for m in load_manuals(settings.require_kb_dir())},
         "ocr_chunks": sum(c.source == "ocr" for c in chunks),
         "embedding_model": settings.embedding_model if matrix is not None else None,
         "seconds": round(time.perf_counter() - started, 1),
     }
-    (settings.index_dir / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    (index_dir / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
     return manifest

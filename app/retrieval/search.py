@@ -20,7 +20,8 @@ import numpy as np
 from rank_bm25 import BM25Okapi
 
 from app.config import Settings
-from app.retrieval.manuals import manuals_by_id
+from app.integrations.fleet import load_engine_families
+from app.retrieval.manuals import check_families_known, manuals_by_id
 from app.storage.events import log_event
 
 RRF_K = 60            # стандартная константа RRF
@@ -152,18 +153,20 @@ _query_vectors: dict[tuple[str, str], np.ndarray] = {}
 
 
 def get_index(settings: Settings) -> SearchIndex:
-    """Индекс из settings.index_dir; перечитывается, если пересобраны фрагменты или эмбеддинги.
+    """Индекс из INDEX_DIR; перечитывается, если пересобраны фрагменты или эмбеддинги.
     При загрузке семейство каждого фрагмента сверяется со справочником руководств: индекс,
     собранный по старому справочнику, не должен незаметно ослабить фильтр по двигателю."""
+    index_dir = settings.require_index_dir()
     files = ("chunks.jsonl", "embeddings.npy", "manifest.json")
-    stamp = tuple((settings.index_dir / f).stat().st_mtime if (settings.index_dir / f).exists() else 0.0
-                  for f in files)
-    cached = _index_cache.get(settings.index_dir)
+    stamp = tuple((index_dir / f).stat().st_mtime if (index_dir / f).exists() else 0.0 for f in files)
+    cached = _index_cache.get(index_dir)
     if cached is None or cached[0] != stamp:
-        index = SearchIndex(settings.index_dir)
-        check_families(index, manuals_by_id(settings.config_dir))
+        index = SearchIndex(index_dir)
+        manuals = manuals_by_id(settings.require_kb_dir())
+        check_families_known(tuple(manuals.values()), set(load_engine_families(settings.config_dir).values()))
+        check_families(index, manuals)
         cached = (stamp, index)
-        _index_cache[settings.index_dir] = cached
+        _index_cache[index_dir] = cached
     return cached[1]
 
 
@@ -171,7 +174,7 @@ def check_families(index: SearchIndex, manuals: dict) -> None:
     for c in index.chunks:
         manual = manuals.get(c["doc_id"])
         if manual is None or manual.engine_family != c["engine_family"] or manual.manual != c["manual"]:
-            raise ValueError(f"Индекс не соответствует config/manuals.json ({c['chunk_id']}): "
+            raise ValueError(f"Индекс не соответствует манифесту KB_DIR/kb.yaml ({c['chunk_id']}): "
                              "пересоберите индекс scripts/build_index.py")
 
 
@@ -189,8 +192,10 @@ def embed_query(query: str, settings: Settings, *, scenario: str) -> np.ndarray 
 
 
 def search(query: str, engine_family: str, settings: Settings, *, k: int = DEFAULT_K,
-           scenario: str = "question", index: SearchIndex | None = None) -> SearchResult:
-    """Лучшие k фрагментов по запросу среди документов семейства engine_family."""
+           scenario: str = "question", index: SearchIndex | None = None,
+           vehicle_id: str | None = None) -> SearchResult:
+    """Лучшие k фрагментов по запросу среди документов семейства engine_family.
+    vehicle_id — только для журнала событий; на фильтр не влияет (фильтр — engine_family)."""
     if not engine_family:
         raise ValueError("engine_family обязателен: поиск без фильтра по двигателю запрещён")
     index = index or get_index(settings)
@@ -201,7 +206,7 @@ def search(query: str, engine_family: str, settings: Settings, *, k: int = DEFAU
             vector = embed_query(query, settings, scenario=scenario)
         except Exception as exc:      # сбой провайдера не роняет поиск — остаётся BM25
             vector = None
-            log_event(settings.db_path, "error", data={
+            log_event(settings.db_path, "error", vehicle_id=vehicle_id, data={
                 "where": "query_embedding", "error": type(exc).__name__, "fallback": "bm25"})
         if vector is not None:
             rankings.append(index.vector_ranking(vector, engine_family))

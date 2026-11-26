@@ -2,6 +2,8 @@
 services:
   mechanic-web:
     networks: [internal, public]
+    environment:
+      AUTH_DISABLED: "0"   # на стенде вход по паролю всегда, даже если в .env стоит 1
 
 networks:
   public:

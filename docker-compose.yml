@@ -10,9 +10,13 @@ services:
     environment:
       MOCK_ML_URL: http://mock-ml:8001
       MOCK_TOIR_URL: http://mock-toir:8002
+      KB_DIR: /kb
+      INDEX_DIR: /index
+    # База знаний внешняя: каталоги хоста из KB_DIR / INDEX_DIR (.env), в образ не входят.
+    # Приложение только читает: KB и индекс на чтение (индекс строится scripts/build_index.py вне контейнера).
     volumes:
-      - ./data:/app/data
-      - ./index:/app/index
+      - ${KB_DIR:?KB_DIR не задан в .env}:/kb:ro
+      - ${INDEX_DIR:?INDEX_DIR не задан в .env}:/index:ro
       - ./var:/app/var
       - ./mocks/data:/app/mocks/data:ro
     mem_limit: 768m

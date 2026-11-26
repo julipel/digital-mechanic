@@ -14,7 +14,7 @@ color: orange
 Шаги:
 1. Проверь локально: рабочее дерево чистое, последний коммит запушен в main.
 2. По SSH (пользователь deploy): cd /srv/digital-mechanic && git pull.
-3. Проверь, что .env на сервере есть (не выводи его содержимое) и PDF лежат в data/manuals/.
+3. Проверь, что .env на сервере есть (не выводи его содержимое), а база знаний и индекс лежат в /srv/digital-mechanic/kb и /srv/digital-mechanic/index с правами 700. В образ и репозиторий их не копируй.
 4. docker compose build && docker compose up -d. Если менялись данные индекса — команда
    перестроения индекса из README.
 5. Проверь: docker compose ps (все сервисы up), docker stats --no-stream (память в пределах

@@ -33,18 +33,40 @@ class Settings(BaseSettings):
     embedding_model: str = ""
     vision_model: str = ""
 
+    # Доступ к интерфейсу и API. Пароль не задан → всё, кроме /health, отвечает 503,
+    # если явно не включён AUTH_DISABLED=1 (только для локальной разработки).
+    app_password: SecretStr | None = None
+    auth_disabled: bool = False
+
+    # База знаний — внешняя (CLAUDE.md, «База знаний — внешняя»): каталоги вне репозитория
+    # и образа, значений по умолчанию нет. KB_DIR — PDF + манифест kb.yaml; INDEX_DIR — индекс.
+    kb_dir: Path | None = None
+    index_dir: Path | None = None
+
     # Данные и хранилища
-    manuals_dir: Path = Path("data/manuals")
-    index_dir: Path = Path("index")
     db_path: Path = Path("var/mechanic.sqlite")
     vehicles_path: Path = Path("mocks/data/vehicles.json")
     fault_types_path: Path = Path("mocks/data/fault_types.json")
     config_dir: Path = Path("config")  # engines.json, fault_applicability.json
 
-    @field_validator("manuals_dir", "index_dir", "db_path", "vehicles_path", "fault_types_path", "config_dir")
+    @field_validator("kb_dir", "index_dir", "db_path", "vehicles_path", "fault_types_path", "config_dir",
+                     mode="before")
     @classmethod
-    def _resolve_from_root(cls, value: Path) -> Path:
+    def _resolve_from_root(cls, value):
+        if value is None or value == "":
+            return None
+        value = Path(value)
         return value if value.is_absolute() else PROJECT_ROOT / value
+
+    def require_kb_dir(self) -> Path:
+        if self.kb_dir is None:
+            raise RuntimeError("KB_DIR не задан в .env: каталог базы знаний (PDF + kb.yaml)")
+        return self.kb_dir
+
+    def require_index_dir(self) -> Path:
+        if self.index_dir is None:
+            raise RuntimeError("INDEX_DIR не задан в .env: каталог поискового индекса")
+        return self.index_dir
 
     @field_validator("mock_ml_url", "mock_toir_url")
     @classmethod
