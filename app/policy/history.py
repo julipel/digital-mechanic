@@ -14,6 +14,9 @@
 - наши заявки по машине из SQLite: по какой проверке, код, приоритет, номер ТОиР.
 
 Поле description из vehicles.json сюда не попадает: это недоверенный текст ML-сервиса.
+Календарных дат в сводке нет — только «дней до выбранной проверки»: сводку читает модель, и
+дата проверки рядом со сроком из оценки тенденции позволила бы ей сложить «дату поломки».
+Порядок заявок — по времени создания, сама дата не передаётся.
 Код, невозможный для этого двигателя, помечается по таблице применимости, а не моделью.
 """
 from dataclasses import dataclass, field
@@ -58,12 +61,19 @@ def vehicle_history(vehicle, session_id: str, tickets: list[dict], config_dir: P
     series = [s for s in vehicle.sessions if s.checked_at <= current.checked_at][-max_checks:]
     ticket_by_session = {t["session_id"]: t for t in tickets}
 
+    def ago(s) -> int:
+        """Сколько полных дней прошло от проверки s до выбранной (у выбранной — 0)."""
+        return (current.checked_at - s.checked_at).days
+
+    def when(s) -> str:
+        return "выбранная проверка" if s is current else f"{ago(s)} дн. до выбранной"
+
     def applicable(s) -> bool:
         return check_applicability(config_dir, vehicle.engine_family, s.anomaly_type).applicable
 
     checks = []
     for s in reversed(series):                           # новые сверху
-        item = {"session_id": s.session_id, "checked_at": s.checked_at.isoformat(), "selected": s is current,
+        item = {"session_id": s.session_id, "days_before_selected": ago(s), "selected": s is current,
                 "status": s.status, "status_ru": STATUS_RU.get(s.status, s.status),
                 "anomaly_type": s.anomaly_type, "anomaly_title": s.anomaly_title,
                 "anomaly_score": s.anomaly_score, "confidence": s.confidence,
@@ -108,8 +118,8 @@ def vehicle_history(vehicle, session_id: str, tickets: list[dict], config_dir: P
         if prev.status == "anomaly" and nxt.status == "normal" and not _failed(nxt):
             ticket = ticket_by_session.get(prev.session_id)
             observations.append(
-                f"После отклонения {prev.anomaly_type} ({prev.checked_at:%d.%m}) следующая проверка — норма "
-                f"({nxt.checked_at:%d.%m}): ремонт или ложное срабатывание"
+                f"После отклонения {prev.anomaly_type} ({when(prev)}) следующая проверка — норма "
+                f"({when(nxt)}): ремонт или ложное срабатывание"
                 + (f"; по тому отклонению была заявка {ticket['ticket_id']}" if ticket else "") + ".")
 
     n_failed = sum(1 for s in series if _failed(s))
@@ -117,7 +127,7 @@ def vehicle_history(vehicle, session_id: str, tickets: list[dict], config_dir: P
         observations.append(f"Сбоев записи в ряду: {n_failed}.")
 
     tickets_view = tuple(
-        {"ticket_id": t["ticket_id"], "session_id": t["session_id"], "created_at": t["created_at"],
+        {"ticket_id": t["ticket_id"], "session_id": t["session_id"],
          "anomaly_type": t["payload"].get("anomaly_type"), "urgency": t["payload"].get("urgency"),
          "operations": len(t["payload"].get("operations") or [])}
         for t in reversed(tickets))

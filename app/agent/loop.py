@@ -273,14 +273,14 @@ class _Renderer:
 
 def _state(conv: Conversation, deps: AgentDeps, tools: tuple[str, ...]) -> dict:
     vehicle = deps.fleet.get(conv.vehicle_id)
-    session = vehicle.session(conv.session_id) if vehicle else None
     state = {
         "vehicle": None if vehicle is None else {
             "vehicle_id": vehicle.vehicle_id, "garage_no": vehicle.garage_no, "model": vehicle.model,
             "engine_model": vehicle.engine_model, "fuel": vehicle.fuel,
             "manuals_available": vehicle.engine_family is not None},
-        "selected_check": {"session_id": conv.session_id,
-                           "checked_at": session.checked_at.isoformat() if session else None},
+        # без даты проверки: модель не должна складывать «дату поломки» из даты и срока оценки
+        # тенденции (B2). Дату механик видит в интерфейсе.
+        "selected_check": {"session_id": conv.session_id},
         "mode": conv.mode.mode,
         "warnings_already_shown": [msg.WARNINGS_RU[w] for w in conv.mode.warnings],
         "available_tools": list(tools),

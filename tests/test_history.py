@@ -164,3 +164,21 @@ def test_journal_api_errors(client_for):
     assert client.get("/api/vehicles/b418hk98/journal").status_code == 404
     assert client.get("/api/vehicles/B418HK98/journal?kind=secret").status_code == 422
     assert client.get("/api/vehicles/B418HK98/journal?kind=check,warning").status_code == 200
+
+
+def test_history_has_no_calendar_dates(fleet, settings):
+    """Сводку читает модель: дат нет (иначе с днями из оценки тенденции сложится «дата поломки»),
+    время — дни до выбранной проверки."""
+    import json
+    import re
+    v = fleet.get("X792BH98")                     # норма, F06, F06, норма после отклонения
+    tickets = [_ticket(v.sessions[1].session_id, "TKT-1")]
+    for s in v.sessions:
+        h = vehicle_history(v, s.session_id, tickets, settings.config_dir).as_dict()
+        text = json.dumps(h, ensure_ascii=False)
+        assert not re.search(r"\d{4}-\d{2}-\d{2}|\b\d{2}\.\d{2}\b", text), text
+        assert h["checks"][0]["days_before_selected"] == 0 and h["checks"][0]["selected"]
+        assert all(c["days_before_selected"] >= 0 for c in h["checks"])
+    last = vehicle_history(v, v.sessions[-1].session_id, tickets, settings.config_dir)
+    assert any("дн. до выбранной" in o for o in last.observations)
+

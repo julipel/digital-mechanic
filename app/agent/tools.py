@@ -291,7 +291,8 @@ def _get_history(ctx: ToolContext) -> dict:
                               selected_ticket_pending=bool(reserved) and reserved["status"] != "created")
     view = history.as_dict()
     view["note"] = ("Данные системы. Сопоставь выбранную проверку с прошлыми, перескажи observations; "
-                    "проверки после выбранной сюда не входят.")
+                    "проверки после выбранной сюда не входят. Время — в днях до выбранной проверки; "
+                    "календарных дат и даты поломки не называй.")
     return view
 
 

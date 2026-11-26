@@ -357,6 +357,19 @@ def test_get_trend_tool_returns_code_result(make):
     assert all("checked_at" in p for p in trend["points"])                # даты для графика не потеряны
 
 
+def test_model_never_sees_calendar_dates(make):
+    """B2: модель не называет дату поломки — для этого она не получает календарных дат ни в
+    состоянии диалога, ни от get_trend, ни от get_vehicle_history (только дни)."""
+    import re
+    conv, deps, model, _ = make("B418HK98", "S-0009", DIAG,
+                                [(modes.GET_TREND, {}), (modes.GET_HISTORY, {})], "Тенденция: рост.")
+    run(conv, deps, text="Когда сломается?", scenario="question")
+    assert len(model.calls) >= 3
+    for call in model.calls:
+        text = json.dumps(call["messages"][1:], ensure_ascii=False)     # [0] — системный промпт
+        assert not re.search(r"\d{4}-\d{2}-\d{2}|\b\d{2}\.\d{2}\b", text), text[:500]
+
+
 @pytest.mark.parametrize("vehicle_id,session_id", [("P456AT178", "S-0003"), ("K354KC98", "S-0087")])
 def test_get_trend_not_offered_when_check_failed_or_inconsistent(make, vehicle_id, session_id):
     conv, deps, model, _ = make(vehicle_id, session_id, DIAG, [(modes.GET_TREND, {})], "Без тенденции.")
