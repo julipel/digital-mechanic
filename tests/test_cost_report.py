@@ -33,3 +33,16 @@ def test_session_rows_scale_by_session_and_skip_noise():
     r = rows[0]
     assert r["calls"] == 2.0                      # 1 вызов на вопрос × 2 вопроса в сессии
     assert abs(r["rub"] - 2 * 2.0 * 100) < 1e-9   # 2 вызова × $2 × 100 ₽
+
+
+def test_fleet_month_cost():
+    cfg = dict(CFG, fleet={"vehicles": 10, "check_interval_days": 10, "days_in_month": 30,
+                           "status_share": {"normal": 0.5, "anomaly": 0.5},
+                           "actions_by_status": {"normal": {"explain": 1}, "anomaly": {"explain": 1, "question": 2}},
+                           "compare_models": ["gpt-6.2-sol"]})
+    calls = [call("e1", "explain", "agent_final", 1_000_000, 0, 0),   # 200 ₽ за объяснение
+             call("q1", "question", "agent_final", 500_000, 0, 0)]    # 100 ₽ за вопрос
+    table = cost_report.fleet_table(calls, cfg, idx_total=0.0)
+    month = next(r for r in table if r[0] == "Модели на парк в месяц")
+    # 30 проверок: половина по 200 ₽, половина по 200 + 2×100 = 400 ₽ → 30 × 300 = 9000 ₽
+    assert month[2] == "9 000,00"

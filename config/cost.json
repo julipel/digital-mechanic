@@ -1,8 +1,8 @@
 {
   "_comment": "Для scripts/cost_report.py. Цены — стандартный тариф OpenAI за 1 млн токенов (short context), https://developers.openai.com/api/docs/pricing, сверено 27.11.2026. input — полный вход, cached_input — вход из кеша, output — выход. Курс задан пользователем. Состав сессии проверки двигателя — сколько действий механика каждого сценария.",
   "currency": "$",
-  "usd_rub": 82.2732,
-  "usd_rub_note": "курс, указанный пользователем как курс ЦБ РФ на 28.11.2026",
+  "usd_rub": 82.313,
+  "usd_rub_note": "курс ЦБ РФ на 26.11.2026 (как требует шаблон калькулятора), задан пользователем",
   "prices": {
     "gpt-6.2-sol": {
       "input": 2.0,
@@ -29,5 +29,33 @@
     "explain": 1,
     "question": 2,
     "ticket": 1
+  },
+  "fleet": {
+    "_comment": "Лист «Парк»: допущения. Интервал и доли статусов — по данным заглушки (50 машин, 195 проверок): у реального парка доля отклонений, вероятно, ниже. Что механик делает по каждому статусу — число действий каждого сценария.",
+    "vehicles": 50,
+    "check_interval_days": 17,
+    "days_in_month": 30.4,
+    "status_share": {
+      "normal": 0.57,
+      "anomaly": 0.35,
+      "check_failed": 0.08
+    },
+    "actions_by_status": {
+      "normal": {
+        "explain": 1
+      },
+      "anomaly": {
+        "explain": 1,
+        "question": 2,
+        "ticket": 1
+      },
+      "check_failed": {
+        "explain": 1
+      }
+    },
+    "compare_models": [
+      "gpt-6.2-sol",
+      "gpt-6-luna"
+    ]
   }
 }

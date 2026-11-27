@@ -100,6 +100,64 @@ def indexing_cost(calls: list[dict], cfg: dict) -> list[tuple[str, str, int, int
     return out
 
 
+def action_costs(calls: list[dict], cfg: dict, model: str | None = None) -> dict[str, float]:
+    """₽ на одно действие механика каждого сценария (все шаги агента и эмбеддинги).
+    model — пересчитать шаги агента по ценам другой модели на тех же токенах."""
+    if model:
+        calls = [dict(c, model=model) if c["step"].startswith("agent_") else c for c in calls]
+    one = dict(cfg, session={sc: 1 for sc in SCENARIOS})
+    out = {sc: 0.0 for sc in SCENARIOS}
+    for r in session_rows(calls, one):
+        sc = next(k for k, v in SCENARIOS.items() if r["step"].startswith(v))
+        out[sc] += r["rub"]
+    return out
+
+
+def fleet_table(calls: list[dict], cfg: dict, idx_total: float) -> list[list[str]]:
+    """Лист «Парк»: стоимость моделей в месяц и год на парк при допущениях из cfg["fleet"]."""
+    f = cfg["fleet"]
+    checks_month = f["vehicles"] * f["days_in_month"] / f["check_interval_days"]
+    models = f["compare_models"]
+    costs = {m: action_costs(calls, cfg, None if m == "gpt-6.2-sol" else m) for m in models}
+    blank = [""] * (2 + len(models))
+    rows = [["Цифровой механик: стоимость моделей на парк"] + blank[1:],
+            [f"Курс доллара, ₽ за 1 $ → {num(cfg['usd_rub'], 4)}"] + blank[1:], blank,
+            ["Допущение", "Значение"] + [""] * len(models),
+            ["Машин в парке", str(f["vehicles"])] + [""] * len(models),
+            ["Проверка каждой машины раз в, дней", str(f["check_interval_days"])] + [""] * len(models),
+            ["Проверок в месяц на парк", num(checks_month, 1)] + [""] * len(models)]
+    names = {"normal": "норма", "anomaly": "отклонение", "check_failed": "сбой записи"}
+    for st, share in f["status_share"].items():
+        acts = ", ".join(f"{SCENARIOS[k].lower()} ×{v}" for k, v in f["actions_by_status"][st].items())
+        rows.append([f"Доля проверок «{names[st]}» (механик: {acts})", f"{share:.0%}"] + [""] * len(models))
+    rows += [blank, ["Стоимость, ₽", ""] + models]
+    for sc in SCENARIOS:
+        rows.append([f"Одно действие: {SCENARIOS[sc].lower()}", ""] + [num(costs[m][sc], 4) for m in models])
+    per_check = {}
+    for st in f["status_share"]:
+        line = [f"Одна проверка «{names[st]}»", ""]
+        for m in models:
+            v = sum(costs[m][sc] * n for sc, n in f["actions_by_status"][st].items())
+            per_check.setdefault(m, {})[st] = v
+            line.append(num(v, 4))
+        rows.append(line)
+    avg = {m: sum(per_check[m][st] * sh for st, sh in f["status_share"].items()) for m in models}
+    month = {m: avg[m] * checks_month for m in models}
+    rows += [["Средняя проверка (с учётом долей)", ""] + [num(avg[m], 4) for m in models],
+             ["Модели на парк в месяц", ""] + [num(month[m], 2) for m in models],
+             ["Модели на парк в год", ""] + [num(month[m] * 12, 2) for m in models],
+             ["На одну машину в месяц", ""] + [num(month[m] / f["vehicles"], 2) for m in models],
+             blank,
+             ["Разово: индексация руководств и распознавание сканов (gpt-6.2-astra, эмбеддинги)",
+              num(idx_total, 2)] + [""] * len(models),
+             blank,
+             ["Комментарий: интервал проверок и доли статусов — по данным заглушки (50 машин, 195 проверок), "
+              "у реального парка доля отклонений, вероятно, ниже — тогда дешевле. Режим «Главный механик» "
+              "считается кодом без модели. Для gpt-6-luna — пересчёт по её ценам на токенах gpt-6.2-sol "
+              "(до замера качества). Сервер и хранение не включены."] + blank[1:]]
+    return rows
+
+
 def num(x: float, digits: int = 2) -> str:
     return f"{x:,.{digits}f}".replace(",", " ").replace(".", ",")
 
@@ -137,6 +195,7 @@ def main() -> int:
     parser.add_argument("--indexing-db", type=Path, help="журнал с вызовами индексации (по умолчанию тот же)")
     parser.add_argument("--config", type=Path, default=ROOT / "config" / "cost.json")
     parser.add_argument("--out", type=Path)
+    parser.add_argument("--fleet-out", type=Path, help="лист «Парк»: стоимость на парк в месяц/год (CSV)")
     parser.add_argument("--as-model", help="оценка: цены этой модели вместо модели агента на тех же токенах "
                                            "(эмбеддинги не меняются); настоящие токены другой модели будут иными")
     args = parser.parse_args()
@@ -177,6 +236,14 @@ def main() -> int:
         ]
         write_template(args.out, rows, cfg, [c for c in comment if c])
         print(f"\nшаблон заполнен: {args.out}")
+    if args.fleet_out:
+        table = fleet_table(calls, cfg, idx_total)
+        with args.fleet_out.open("w", encoding="utf-8-sig", newline="") as fh:
+            csv.writer(fh).writerows(table)
+        for line in table[3:-2]:
+            if any(line):
+                print("  " + " | ".join(x for x in line if x))
+        print(f"лист «Парк»: {args.fleet_out}")
     return 0
 
 
