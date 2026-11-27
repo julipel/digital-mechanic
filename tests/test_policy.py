@@ -375,6 +375,101 @@ def test_part_number_boundaries():
     assert not part_number_in_text("36-1007010-В2", "клапан 236-1007010-В2.")
 
 
+def test_part_number_with_space_before_execution_letter():
+    """Карты дефектации набирают номер с пробелом перед буквой исполнения: «111-2222333- Д».
+    Без буквы номер не засчитывается — под одним базовым номером несколько исполнений.
+    Номера выдуманы."""
+    text = "Корпус стенда | 111-2222333- Д\n111-2222333- Н\n111-2222333- Г"
+    assert part_number_in_text("111-2222333-Д", text)
+    assert part_number_in_text("111-2222333- Д", text)
+    assert not part_number_in_text("111-2222333", text)
+    assert not part_number_in_text("111-2222333-Б", text)
+
+
+def test_part_number_ending_with_letter_before_digit_is_ambiguous():
+    text = "Ось стенда 111-2222444-А 2 | Втулка 111-2222555-Б"
+    assert not part_number_in_text("111-2222444-А", text)          # «А 2» — может быть «А2»
+    assert part_number_in_text("111-2222555-Б", text)
+
+
+def test_execution_letter_after_space_and_dash():
+    """«111-2222333 -В2» — номер с исполнением В2, «111-2222333» без него не засчитывается;
+    тире перед словом («– Сталь 45») номер не продолжает."""
+    assert not part_number_in_text("111-2222333", "Ось стенда 111-2222333 -В2")
+    assert part_number_in_text("111-2222333", "Ось стенда 111-2222333 – Сталь 45")
+
+
+def test_dangling_dash_and_material_after_number():
+    """Испорченный текст карт: «111-2222333- -В2», «111-2222444- 2 | В» — базовый номер не засчитывается.
+    Материал после тире («- АК7М2Мг», «- СЧ15») исполнением не считается."""
+    assert not part_number_in_text("111-2222333", "Ось 111-2222333- -В2")
+    assert not part_number_in_text("111-2222444", "Ось 111-2222444- 2 | В")
+    assert part_number_in_text("111-2222555-В3", "Корпус 111-2222555-В3 - АК7М2Мг")
+    assert part_number_in_text("111-2222666-В", "Корпус 111-2222666-В - СЧ15")
+    assert part_number_in_text("111-2222777-Г", "Палец 111-2222777-Г 53...63 HRC")
+    assert part_number_in_text("111-2222333-В2", "Ось 111-2222333 -В2")      # скопирован с пробелом
+
+
+def test_fragment_text_is_not_glued_around_dash():
+    """В тексте фрагмента пробелы у дефиса между цифрами не убираются: обрезанный номер и номер,
+    склеенный с выноской или с соседним номером, не засчитываются; честные номера — да."""
+    assert not part_number_in_text("111.2222333-1", "Ось 111.2222333- 1 0")
+    assert not part_number_in_text("111-2222333-2", "Ось 111-2222333-\n2 | Г")
+    text = "12- 333401-П29\n18 - 44135-П2\n111-2222444 – 555.2222444"
+    assert part_number_in_text("333401-П29", text) and part_number_in_text("44135-П2", text)
+    assert not part_number_in_text("12-333401-П29", text)
+    assert part_number_in_text("111-2222444", text) and part_number_in_text("555.2222444", text)
+    assert not part_number_in_text("111-2222444-555.2222444", text)
+
+
+def test_fragments_of_broken_numbers_are_rejected():
+    """Испорченный текст: обрывок с пробелом у дефиса и начало номера, разорванного пробелом."""
+    assert not part_number_in_text("111-2222333- 2", "Ось 111-2222333- 2 | В")
+    assert not part_number_in_text("111-22223", "Ось 111-22223 33-Б2 стенда")
+    assert part_number_in_text("111-2222333", "Ось 111-2222333 | Сталь 45")
+    assert not part_number_in_text("1111.22223", "II. 1111.22223 90\nсталь стенда")   # разорван, дальше слово
+    assert not part_number_in_text("111-222", "Ось 111-222 3333")
+    assert part_number_in_text("111-2222333", "Ось 111-2222333 12 шт")          # полная группа — номер целый
+
+
+@pytest.mark.parametrize("operation", ["Заменить 111Б-9999999-В2", "Заменить 111НЕ-9999999"])
+def test_free_text_number_with_letters_in_first_group_is_checked(operation):
+    hit = Hit("yamz236_rk-p057-1", "Корпус стенда | 111Б-2222333-В2", pdf_page=57)
+    draft = good_draft(operations=[operation], chunk_ids=[hit.chunk_id])
+    r = validate(draft, reg=registry(hit))
+    assert not r.ok and any("9999999" in v for v in r.violations), operation
+
+
+def test_free_text_number_with_space_around_dash_is_checked():
+    hit = Hit("yamz236_rk-p057-1", "Корпус стенда | 111-2222333- Д", pdf_page=57)
+    draft = good_draft(operations=["Заменить вал 111 -9999999"], chunk_ids=[hit.chunk_id])
+    r = validate(draft, reg=registry(hit))
+    assert not r.ok and any("9999999" in v for v in r.violations)
+
+
+def test_ambiguous_suffix_digit_rules():
+    assert part_number_in_text("111-2222444-Б", "Ось 111-2222444-Б 08ПС")          # марка стали
+    assert part_number_in_text("111-2222444-Б", "см. 111-2222444-Б 4.13.1")         # пункт
+    assert not part_number_in_text("111-2222444-Б", "Ось 111-2222444-Б 2.")         # «Б2.» в конце
+
+
+@pytest.mark.parametrize("operation", ["Заменить №111-2222333", "Заменить (кат.111-2222333)",
+                                       "Заменить корпус111-2222333"])
+def test_free_text_number_glued_to_prefix_is_checked(operation):
+    hit = Hit("yamz236_rk-p057-1", "Корпус стенда | 111-2222333- Д", pdf_page=57)
+    draft = good_draft(operations=[operation], chunk_ids=[hit.chunk_id])
+    r = validate(draft, reg=registry(hit))
+    assert not r.ok and any("111-2222333" in v for v in r.violations), operation
+
+
+def test_free_text_number_without_execution_letter_is_rejected():
+    """В выводе или работах номер «111-2222333» без буквы — не из фрагмента, где только «- Д»."""
+    hit = Hit("yamz236_rk-p057-1", "Корпус стенда | 111-2222333- Д", pdf_page=57)
+    draft = good_draft(operations=["Заменить корпус 111-2222333"], chunk_ids=[hit.chunk_id])
+    r = validate(draft, reg=registry(hit))
+    assert not r.ok and any("111-2222333" in v for v in r.violations)
+
+
 # --- Черновик и подтверждение ---------------------------------------------------------------
 
 class FakeToir:

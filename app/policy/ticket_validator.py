@@ -29,9 +29,28 @@ from app.policy.citations import Citation, CitationRegistry, find_reference_like
 
 PART_NUMBER_MIN_LEN = 5
 _DASHES = dict.fromkeys(map(ord, "‐‑‒–—―−"), "-")
+# Исполнение через пробел: «1002011- Д», «1007146 -В2», «1007146 - В2» → «…-Д», «…-В2».
+# Только одна заглавная буква с цифрами и граница после неё: «– Сталь 45», «- АК7М2Мг», «- СЧ15» не трогаем.
+_SUFFIX_GAP = re.compile(r"(?<=\d{4})(?:\s+-\s*|-\s+)(?=[А-ЯЁA-Z]\d*(?:[\s|;,.)]|$))")
+# Пробел у дефиса между цифрами в СВОБОДНОМ тексте заявки: «236 -1007011» → «236-1007011», чтобы такой
+# номер тоже сверялся с фрагментом. Текст фрагмента так не склеивается: там «50.1307023- 1 0» или
+# «12- 311401-П29» (выноска) дали бы номер, которого в карте нет.
+_DIGIT_DASH_GAP = re.compile(r"(?<=\d{3})(?:\s+-(?=\d)|-\s+(?=\d))")
+# после буквы исполнения через пробел цифра: «-А 2» — то ли «А2», то ли соседняя ячейка
+# не в счёт: следующий номер «111-…», марка «08ПС», пункт «4.13.1»; «А 2.» в конце фразы — в счёт
+_DIGIT_AFTER_SUFFIX = re.compile(r"\s\d{1,2}(?![\d\-]|[А-ЯЁA-Zа-яё]|[.,]\d|\.\.)")   # «Г 53...63 HRC» — твёрдость
+# номер, кончающийся цифрой, за которым через пробел ещё 1–3 цифры: разорван пробелом внутри цифр
+# («236-10070 92-Б2», «…130718 0;»); номер выноски на следующей строке («… 18 - …») не в счёт
+_DIGITS_AFTER_NUMBER = re.compile(r"\s\d{1,3}(?:-(?!\d{4})|[;)]|$)")   # «111-2222444» дальше — следующий номер
+# короткая основная группа (до 6 цифр) и за ней через пробел ещё цифры: «7511.10071 90», «236-1007 23» —
+# номер разорван пробелом, засчитывать начало нельзя (полный номер — 7 цифр в группе)
+_SHORT_GROUP = re.compile(r"\d{2,}[А-ЯЁA-Z]{0,3}[-.]\d{1,6}")
+_DIGITS_GAP = re.compile(r"\s\d")
+_DASH_SPACE = re.compile(r"\s-|-\s")
 # Похоже на каталожный номер: «236-1007010», «238-1005170-А», «5336.1003010-10».
 # Также крепёж «201457-П29», номер с пробелом «236 1007010» и любой ряд из 6+ цифр.
-_PART_LIKE = re.compile(r"(?<![\w\-.])(?:\d{2,}[-.]\d{4,}(?:[-.]\w+)*|\d{5,}-[А-ЯЁA-Z]\w*|\d{3} \d{7}|\d{6,})(?!\w)")
+# Перед номером не цифра, не дефис и не «цифра.»; буква или «№» вплотную («№236-…», «кат.236-…») не мешают.
+_PART_LIKE = re.compile(r"(?<![\d\-])(?<!\d\.)(?:\d{2,}[А-ЯЁA-Z]{1,3}[-.]\d{4,}(?:[-.]\w+)*|\d{2,}[-.]\d{4,}(?:[-.]\w+)*|\d{5,}-[А-ЯЁA-Z]\w*|\d{3} \d{7}|\d{6,})(?!\w)")
 
 
 class SparePartInput(BaseModel):
@@ -65,20 +84,36 @@ class ValidationResult:
 
 def normalize_for_match(text: str) -> str:
     """Для «буквального» сравнения номеров: единый вид дефисов и пробелов, без переноса строк.
+    Пробел между дефисом и буквой исполнения убирается: в картах дефектации 236.01.01 РК номер
+    набран как «236-1002011- Д», это тот же номер, что «236-1002011-Д».
     Буквы и цифры не меняются — «236-1007010-В» не совпадёт с «236-1007010-Б»."""
     text = unicodedata.normalize("NFKC", text).translate(_DASHES)
+    text = _SUFFIX_GAP.sub("-", text)
     return re.sub(r"\s+", " ", text).strip()
 
 
 def find_part_number(part_number: str, text: str) -> str | None:
     """Номер в тексте целиком (не часть более длинного: «236-1007010» не засчитывается внутри
-    «236-1007010-В» или «1236-1007010»). Возвращает написание из текста или None."""
+    «236-1007010-В», «236-1007010- В» или «1236-1007010»). Номер, кончающийся буквой, не засчитывается,
+    если в тексте за ним через пробел цифра («236-1007176-А 2»): это может быть «А2» — номер неоднозначен,
+    лучше отказ, чем другая деталь в заявке. Возвращает написание из текста или None."""
     number = normalize_for_match(part_number)
-    if not number:
-        return None
-    pattern = rf"(?<![\w\-]){re.escape(number)}(?![\w]|-\w)"
-    match = re.search(pattern, normalize_for_match(text))
-    return match.group(0) if match else None
+    if not number or _DASH_SPACE.search(number):
+        return None          # «236-1011208- 2» — обрывок испорченного текста, а не номер
+    # за номером нельзя: буква/цифра, «-В» (исполнение), висящий дефис «- -В2», «- 2 | Г» (испорченный текст
+    # 236.01.01 РК), « -В2» с границей после; можно: « – Сталь 45», « - АК7М2Мг» (материал)
+    pattern = (rf"(?<![\w\-]){re.escape(number)}"
+               r"(?![\w]|-\s?[\w-]|\s?-\s?[А-ЯЁA-Z]\d*(?:[\s|;,.)]|$))")
+    haystack = normalize_for_match(text)
+    for match in re.finditer(pattern, haystack):
+        if number[-1].isalpha() and _DIGIT_AFTER_SUFFIX.match(haystack, match.end()):
+            continue
+        if number[-1].isdigit() and _DIGITS_AFTER_NUMBER.match(haystack, match.end()):
+            continue         # «236-10070 92-Б2» — номер разорван пробелом, «236-10070» — его обрывок
+        if _SHORT_GROUP.fullmatch(number) and _DIGITS_GAP.match(haystack, match.end()):
+            continue
+        return match.group(0)
+    return None
 
 
 def part_number_in_text(part_number: str, text: str) -> bool:
@@ -150,7 +185,7 @@ def validate_draft(draft: DraftInput, *, diagnosis: Diagnosis, applicability: Ap
         for ref in find_reference_like(text, registry.manuals):
             v.append(f"Поле «{label}»: ссылка на документ или страницу в тексте не допускается ({ref!r}) — "
                      "источники указываются только через chunk_ids")
-        for number in _PART_LIKE.findall(normalize_for_match(text)):
+        for number in _PART_LIKE.findall(_DIGIT_DASH_GAP.sub("-", normalize_for_match(text))):
             if not any(part_number_in_text(number, t) for t in cited_texts):
                 v.append(f"Поле «{label}»: номер {number!r} не найден в тексте цитируемых фрагментов")
     return result
