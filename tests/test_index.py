@@ -203,6 +203,61 @@ def test_numbered_list_item_is_not_heading():
     assert not is_heading(line("1. Настроить и проверить центробежный датчик", 100, 14), 14)
 
 
+def test_sentence_clause_is_not_carried_as_section():
+    """Пункт-предложение («2. Запрещается…», «9.3 Проверить…») режет страницу, но разделом не становится:
+    на следующей странице раздел — настоящий заголовок. Строки выдуманы, не из руководств."""
+    body = [line("текст " * 12, 200 + 12 * i, 14) for i in range(30)]
+    pages = [
+        PageText(1, [line("УЗЕЛ ПОДАЧИ ВОЗДУХА", 60, 14, bold=True)] + body[:10]
+                 + [line("2. Запрещается мыть корпус узла горячим", 400, 14, bold=True),
+                    line("раствором, так как уплотнение теряет форму", 412, 14)] + body[10:20]),
+        PageText(2, body[:10] + [line("9.3 Проверить люфт рычага привода, зазор между", 400, 14),
+                                 line("рычагом и осью", 412, 14)] + body[10:20]),
+        PageText(3, body[:5]),
+    ]
+    out = chunk_document(ZMZ, pages)
+    assert {c.section for c in out} == {"УЗЕЛ ПОДАЧИ ВОЗДУХА"}
+    assert any(c.text.startswith("2. Запрещается") for c in out)      # граница фрагмента осталась
+
+
+def test_clause_from_other_subsection_ends_section():
+    """4.6.3 после «4.2 Приёмка…» — раздел 4.2 закончился, откат к главе «4 …». Ближайший пункт
+    остаётся в поле heading — это контекст для эмбеддинга."""
+    body = [line("Текст абзаца " * 6, 200 + 12 * i, 14) for i in range(10)]
+    pages = [
+        PageText(1, [line("4 Требования к узлам стенда", 60, 18)] + body),
+        PageText(2, [line("4.2 Приёмка узлов стенда", 60, 14, bold=True)] + body),
+        PageText(3, [line("4.6.3 Болты крышки стенда затягивать после", 60, 14),
+                     line("остывания корпуса", 72, 14)] + body),
+    ]
+    out = chunk_document(ZMZ, pages)
+    assert {c.pdf_page: c.section for c in out} == {1: "4 Требования к узлам стенда",
+                                                    2: "4.2 Приёмка узлов стенда",
+                                                    3: "4 Требования к узлам стенда"}
+    assert {c.pdf_page: c.heading for c in out}[3] == "4.6.3 Болты крышки стенда затягивать после"
+
+
+def test_multilevel_rows_on_table_page_are_not_sections():
+    rows = [line(f"Причина {i} | Устранить {i}", 100 + 12 * i, 10) for i in range(8)]
+    pages = [
+        PageText(1, [line("ПЕРЕЧЕНЬ ОТКАЗОВ УЗЛА", 60, 10, bold=True),
+                     line("4.2 Не горит лампа стенда", 80, 10, bold=True)] + rows),
+        PageText(2, [line("текст " * 12, 80 + 12 * i, 10) for i in range(10)]),
+    ]
+    assert {c.section for c in chunk_document(ZMZ, pages)} == {"ПЕРЕЧЕНЬ ОТКАЗОВ УЗЛА"}
+
+
+def test_ocr_heading_is_upper_case_line():
+    from app.retrieval.chunk import is_ocr_heading
+    ocr = lambda t: Line(text=t, y0=0, y1=0, size=0, bold=False)
+    assert is_ocr_heading(ocr("ПЕРЕЧЕНЬ ОТКАЗОВ УЗЛА"))
+    assert is_ocr_heading(ocr("СТЕНДЫ"))
+    assert not is_ocr_heading(ocr("ВНИМАНИЕ! НЕ ВКЛЮЧАТЬ СТЕНД БЕЗ КРЫШКИ"))
+    assert not is_ocr_heading(ocr("ОТКАЗ | ДЕЙСТВИЕ"))
+    assert not is_ocr_heading(ocr("Проверить крышку стенда"))
+    assert not is_heading(line("А Б I В II Д Q k", 100, 14, bold=True), 14)    # подписи рисунка
+
+
 def test_ocr_page_strips_page_number_and_footers():
     from app.retrieval.build import ocr_page
     page = ocr_page(RK536, 101, "Руководство по ремонту\nОтвернуть болты\nСтраница 2\n", title="Карта")

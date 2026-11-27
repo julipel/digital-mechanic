@@ -114,8 +114,12 @@ def build_chunks(settings: Settings, *, log=print) -> list[Chunk]:
 
 
 def embedding_input(chunk: Chunk) -> str:
-    """Текст для эмбеддинга: контекст (документ, раздел, карта) + текст фрагмента."""
-    head = " / ".join(x for x in (chunk.manual, chunk.title, chunk.section) if x)
+    """Текст для эмбеддинга: контекст (документ, карта, раздел, ближайший заголовок или пункт) + текст.
+    Ближайший пункт («2.8.22 Гайки крепления головок…») точнее раздела главы и помогает векторному поиску."""
+    parts = [chunk.manual, chunk.title, chunk.section]
+    if chunk.heading and chunk.heading != chunk.section:
+        parts.append(chunk.heading)
+    head = " / ".join(x for x in parts if x)
     return f"{head}\n{chunk.text}"
 
 

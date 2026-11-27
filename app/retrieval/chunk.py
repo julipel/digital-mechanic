@@ -5,13 +5,16 @@
 - таблица целиком в одном фрагменте: строки таблиц на этих PDF переносятся и перемешиваются,
   поэтому страница с таблицей не режется вовсе (она и так ограничена одним листом);
 - остальные страницы делятся по заголовкам разделов, длинные куски — по строкам;
-- текущий заголовок раздела переносится через страницы и пишется в метаданные (section).
+- текущий заголовок раздела переносится через страницы и пишется в метаданные (section);
+  нумерованный пункт-предложение («2. Запрещается…», «9.3 Проверить зазор…») режет страницу
+  на фрагменты, как заголовок, но разделом не становится и через страницы не переносится;
+- на распознанных сканах (source=ocr) шрифта нет: заголовок — строка заглавными буквами.
 Метаданные (doc_id, manual, engine_family, pdf_page) копируются из справочника руководств
 и цикла по страницам — текст фрагмента на них не влияет.
 """
 import re
 from collections import Counter
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 
 from app.retrieval.extract import Line, PageText
 from app.retrieval.manuals import Manual
@@ -32,6 +35,12 @@ TABLE_ROWS_MIN = 6   # столько строк вида «ячейка | яч�
 _VALUE = re.compile(r"\d+(?:[,.]\d+)?\s*(?:[-–…±]|\.\.\.)\s*\d|\d+[,.]\d+")
 _FAULT_WORDS = re.compile(r"неисправност|способ\w*\s+устранен|причин\w*\s+неисправ", re.IGNORECASE)
 _HYPHEN_BREAK = re.compile(r"(?<=[а-яёa-z])-\n(?=[а-яёa-z])")
+_CLAUSE_NUMBER = re.compile(r"^\d{1,2}(?:\.\d{1,2}){0,3}\.?\s+")
+# первое слово пункта-предложения: инфинитив («Проверить», «Разряжать») или предписание
+_CLAUSE_VERB = re.compile(r"^(?:не|[а-яё]+(?:ть|ться|ти)|запрещается|допускается|разрешается|следует|"
+                          r"необходимо|рекомендуется|должн\w*|нельзя)$", re.IGNORECASE)
+_WORD = re.compile(r"[A-Za-zА-Яа-яЁё]{4,}")
+_OCR_NOT_HEADING = re.compile(r"^(?:внимание|предупреждение|осторожно|примечание|опасно)\b", re.IGNORECASE)
 
 
 @dataclass
@@ -47,6 +56,7 @@ class Chunk:
     is_table: bool
     is_fault_table: bool
     source: str                # text | ocr
+    heading: str | None = None  # ближайший заголовок или пункт выше фрагмента — контекст для эмбеддинга
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -61,7 +71,41 @@ def body_font_size(pages: list[PageText]) -> float:
     return sizes.most_common(1)[0][0] if sizes else 10.0
 
 
-def is_heading(line: Line, body_size: float) -> bool:
+def _mostly_upper(text: str) -> bool:
+    letters = [ch for ch in text if ch.isalpha()]
+    return bool(letters) and sum(ch.isupper() for ch in letters) / len(letters) > 0.8
+
+
+def is_ocr_heading(line: Line) -> bool:
+    """Заголовок на распознанном скане: строка заглавными, не ячейка таблицы и не «ВНИМАНИЕ!»."""
+    text = line.text.strip()
+    if len(text) > HEADING_MAX_CHARS or "|" in text or _TOC_DOTS.search(text) or _OCR_NOT_HEADING.match(text):
+        return False
+    return sum(ch.isalpha() for ch in text) >= 6 and _mostly_upper(text)
+
+
+def is_sentence(text: str, next_text: str | None) -> bool:
+    """Строка-заголовок на деле начало предложения: пункт требований или шаг процедуры.
+    Строки заглавными — всегда заголовки (у них бывает перенос «ЭЛЕКТРО-»)."""
+    if _mostly_upper(text):
+        return False
+    t = text.rstrip()
+    if t.endswith((".", "-", "‑")):
+        return True
+    words = _CLAUSE_NUMBER.sub("", t).split()
+    if words and _CLAUSE_VERB.match(words[0]):
+        return True
+    # продолжение со строчной — предложение, но только у многоуровневого пункта («6.1.2 Стенд должен…»):
+    # глава «6 Общие требования к обкатке…» и ненумерованный заголовок тоже переносятся на вторую строку
+    multilevel = "." in (_clause_number(t) or "")
+    return multilevel and bool(next_text) and next_text[:1].islower()
+
+
+def is_heading(line: Line, body_size: float, *, ocr: bool = False) -> bool:
+    if not _WORD.search(line.text):      # «А Б I В II» — подписи на рисунке
+        return False
+    if ocr:
+        return is_ocr_heading(line)
     text = line.text
     if len(text) > HEADING_MAX_CHARS or len(text) < 3 or _TOC_DOTS.search(text):
         return False
@@ -98,25 +142,33 @@ def clean_text(text: str) -> str:
     return _HYPHEN_BREAK.sub("", text).strip()
 
 
-def _blocks(lines: list[Line], body_size: float) -> list[tuple[str | None, list[Line]]]:
+Block = tuple[str | None, list[Line], bool]    # заголовок, строки, заголовок — раздел (не предложение)
+
+
+def _blocks(lines: list[Line], body_size: float, *, ocr: bool = False) -> list[Block]:
     """Делит строки страницы на блоки «заголовок + строки до следующего заголовка».
     Первый блок страницы может быть без заголовка (продолжение раздела)."""
-    blocks: list[tuple[str | None, list[Line]]] = []
+    blocks: list[Block] = []
     heading: str | None = None
     current: list[Line] = []
-    for line in lines:
-        if is_heading(line, body_size):
-            if current and all(is_heading(l, body_size) for l in current):
+    carries = False
+    for i, line in enumerate(lines):
+        next_text = lines[i + 1].text if i + 1 < len(lines) else None
+        if is_heading(line, body_size, ocr=ocr):
+            # перенос длинного заголовка — склеиваем; строка со своим номером («3.1 …») — новый блок
+            if (current and _clause_number(line.text) is None
+                    and all(is_heading(l, body_size, ocr=ocr) for l in current)):
                 heading = f"{heading} {line.text}"   # перенос длинного заголовка
-                current.append(line)
+                current.append(line)          # раздел или предложение — решает первая строка
                 continue
             if current:
-                blocks.append((heading, current))
+                blocks.append((heading, current, carries))
             heading, current = line.text, [line]
+            carries = not is_sentence(line.text, next_text)
         else:
             current.append(line)
     if current:
-        blocks.append((heading, current))
+        blocks.append((heading, current, carries))
     return blocks
 
 
@@ -132,39 +184,83 @@ def _split_long(lines: list[Line]) -> list[list[Line]]:
     return parts
 
 
-def _page_parts(page: PageText, body_size: float, section: str | None) -> tuple[list[tuple[str | None, list[Line]]], str | None]:
-    """Части страницы (раздел, строки) и раздел, действующий после этой страницы."""
-    blocks = _blocks(page.lines, body_size)
-    for heading, _ in blocks:
-        if heading is not None:
-            section = heading
+def _clause_number(text: str | None) -> str | None:
+    m = _CLAUSE_NUMBER.match(text or "")
+    return m.group(0).strip().rstrip(".") if m else None
+
+
+@dataclass
+class SectionState:
+    """Раздел, который переносится через страницы.
+    current — действующий раздел; top — последний ненумерованный заголовок; numbered — встреченные
+    нумерованные заголовки-разделы по номеру. Пункт-предложение раздел не задаёт, но если его номер
+    не из текущего раздела (2.8.22 после «2.2 Требования…»), текущий раздел закончился — откат
+    к ближайшему предку по номеру («2.8 …», затем «2 …»), а без него — к top."""
+    current: str | None = None
+    top: str | None = None
+    numbered: dict[str, str] = field(default_factory=dict)
+    nearest: str | None = None     # последний заголовок любого вида, включая пункты-предложения
+
+    def apply(self, heading: str, carries: bool) -> None:
+        n = _clause_number(heading)
+        if carries:
+            self.current = heading
+            if n is None:
+                self.top, self.numbered = heading, {}
+            else:
+                self.numbered[n] = heading
+            return
+        c = _clause_number(self.current)
+        if n and c and n != c and not n.startswith(c + "."):
+            parents = [k for k in self.numbered if n.startswith(k + ".")]
+            self.current = self.numbered[max(parents, key=len)] if parents else self.top
+
+
+Part = tuple[str | None, str | None, list[Line]]    # раздел, ближайший заголовок, строки
+
+
+def _page_parts(page: PageText, body_size: float, state: SectionState) -> list[Part]:
+    """Части страницы; state обновляется до раздела, действующего после страницы."""
+    blocks = _blocks(page.lines, body_size, ocr=page.source == "ocr")
     total = sum(len(l.text) for l in page.lines)
     if page_has_table(page) and total <= TABLE_PAGE_MAX:
-        first = next((h for h, _ in blocks if h), None)
-        return [(first or section, page.lines)], section
+        # в таблице строки с многоуровневым номером («7.5 Открыты двери автобуса») — причины неисправностей,
+        # и номера позиций карты дефектации, а не разделы: на раздел они не влияют вовсе
+        first = first_any = None
+        nearest_before = state.nearest
+        for heading, _, carries in blocks:
+            if heading is None:
+                continue
+            first_any = first_any or heading
+            state.nearest = heading
+            if carries and "." not in (_clause_number(heading) or ""):
+                state.apply(heading, carries)
+                first = first or heading
+        return [(first or state.current, first_any or nearest_before, page.lines)]
 
-    parts: list[tuple[str | None, list[Line]]] = []
-    current_section = None
-    for heading, lines in blocks:
-        current_section = heading or current_section
-        if parts and sum(len(l.text) for l in parts[-1][1]) < MIN_CHARS:
-            parts[-1] = (parts[-1][0], parts[-1][1] + lines)
+    parts: list[Part] = []
+    for heading, lines, carries in blocks:
+        if heading is not None:
+            state.apply(heading, carries)
+            state.nearest = heading
+        if parts and sum(len(l.text) for l in parts[-1][2]) < MIN_CHARS:
+            parts[-1] = (parts[-1][0], parts[-1][1], parts[-1][2] + lines)
         else:
-            parts.append((heading or current_section, lines))
+            parts.append((state.current, state.nearest, lines))
     # первый блок без заголовка — продолжение раздела с прошлой страницы
-    return [(s, piece) for s, lines in parts for piece in _split_long(lines)], section
+    return [(s, h, piece) for s, h, lines in parts for piece in _split_long(lines)]
 
 
 def chunk_document(manual: Manual, pages: list[PageText]) -> list[Chunk]:
     body_size = body_font_size([p for p in pages if p.source == "text"])
     chunks: list[Chunk] = []
-    section: str | None = None
+    state = SectionState()
     for page in pages:
-        prev_section = section
-        parts, section = _page_parts(page, body_size, section)
+        prev_section = state.current
+        parts = _page_parts(page, body_size, state)
         is_table = page_has_table(page)
         n = 0
-        for part_section, lines in parts:
+        for part_section, part_heading, lines in parts:
             text = clean_text("\n".join(l.text for l in lines))
             if len(text) < 20:
                 continue
@@ -182,5 +278,6 @@ def chunk_document(manual: Manual, pages: list[PageText]) -> list[Chunk]:
                 is_table=is_table,
                 is_fault_table=is_table and bool(_FAULT_WORDS.search(f"{part_section or ''}\n{text}")),
                 source=page.source,
+                heading=part_heading,
             ))
     return chunks
