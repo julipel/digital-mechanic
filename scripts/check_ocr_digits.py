@@ -3,7 +3,8 @@
 Для каждой страницы из scan_pages, у которой есть текстовый слой, ищет числа распознанного текста
 в цифрах слоя. Расхождения — в отчёт INDEX_DIR/ocr/check_report.txt (вне репозитория) и коротко
 в консоль: документ, страница, число. Их и только их проверяют вручную по картинке страницы.
-Страницы без текстового слоя (настоящие сканы) пропускаются — их цифры сверяются вручную целиком.
+Страницы без текстового слоя (настоящие сканы): если есть второе прочтение (ocr_scans.py --verify),
+сравниваются два прочтения, расхождения — в тот же отчёт; без второго прочтения — ручная сверка целиком.
 
     python scripts/check_ocr_digits.py
 """
@@ -15,9 +16,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.config import get_settings  # noqa: E402
 from app.retrieval.manuals import load_manuals  # noqa: E402
-from app.retrieval.ocr_check import digits, unmatched_numbers  # noqa: E402
+from app.retrieval.ocr_check import MIN_LAYER_DIGITS, digits, numbers, reading_differences, unmatched_numbers  # noqa: E402
 
-MIN_LAYER_DIGITS = 20   # меньше цифр в слое — считаем, что слоя нет (скан)
 
 
 def main() -> int:
@@ -44,6 +44,18 @@ def main() -> int:
             text_layer = layer.get(n, "")
             if len(digits(text_layer)) < MIN_LAYER_DIGITS:
                 skipped += 1
+                verify = index_dir / "ocr_verify" / manual.doc_id / f"p{n:03d}.txt"
+                if verify.exists():
+                    first = ocr_file.read_text(encoding="utf-8")
+                    only1, only2 = reading_differences(first, verify.read_text(encoding="utf-8"))
+                    # половины во втором прочтении перекрываются — лишние повторы там не в счёт,
+                    # показываем только числа второго прочтения, которых в индексе нет совсем
+                    in_first = set(numbers(first))
+                    only2 = [n for n in only2 if n not in in_first]
+                    if only1 or only2:
+                        total_bad += len(only1)
+                        report.append(f"{manual.doc_id} стр. {n} (скан, два прочтения): "
+                                      f"в индексе {', '.join(only1) or '—'} | во втором {', '.join(only2) or '—'}")
                 continue
             checked += 1
             bad = unmatched_numbers(ocr_file.read_text(encoding="utf-8"), text_layer)

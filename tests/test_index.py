@@ -350,3 +350,12 @@ def test_upright_rotation_for_rotated_table():
     from app.retrieval.extract import upright_rotation
     assert upright_rotation(_rotated_table_pdf(90)) == 90
     assert upright_rotation(_rotated_table_pdf(270)) == -90
+
+
+def test_two_readings_differences():
+    from app.retrieval.ocr_check import reading_differences
+    first = "Таблица 6.7 | 2100 | 412,5 | 16,9"
+    second = "Таблица 6.7 | 2100 | 412,5 | 18,9"
+    assert reading_differences(first, second) == (["16,9"], ["18,9"])
+    assert reading_differences(first, first) == ([], [])
+    assert reading_differences("16,9 | 16,9", "16,9 | 18,9") == (["16,9"], ["18,9"])   # повтор

@@ -11,6 +11,7 @@
 """
 import re
 
+MIN_LAYER_DIGITS = 20   # меньше цифр в текстовом слое страницы — слоя нет (настоящий скан)
 _NUMBER = re.compile(r"\d+(?:[.,\-–—/±…]\d+)*")
 
 
@@ -66,3 +67,19 @@ def unmatched_numbers(ocr_text: str, layer_text: str) -> list[str]:
         seen.add(number)
         out.append(number)
     return out
+
+
+def reading_differences(first: str, second: str) -> tuple[list[str], list[str]]:
+    """Сверка двух прочтений скана без текстового слоя: числа (от двух цифр), которые есть
+    только в первом и только во втором. Совпавшие числа считаются подтверждёнными."""
+    def counted(text: str) -> dict[str, int]:
+        out: dict[str, int] = {}
+        for n in numbers(text):
+            if len(digits(n)) >= 2:
+                out[n] = out.get(n, 0) + 1
+        return out
+    a, b = counted(first), counted(second)
+    # с учётом числа повторов: «16,9» вместо «18,9» в одной из двух одинаковых строк тоже расхождение
+    only_first = [n for n in a if a[n] > b.get(n, 0)]
+    only_second = [n for n in b if b[n] > a.get(n, 0)]
+    return only_first, only_second
