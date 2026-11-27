@@ -118,7 +118,8 @@ def fleet_table(calls: list[dict], cfg: dict, idx_total: float) -> list[list[str
     f = cfg["fleet"]
     checks_month = f["vehicles"] * f["days_in_month"] / f["check_interval_days"]
     models = f["compare_models"]
-    costs = {m: action_costs(calls, cfg, None if m == "gpt-6.2-sol" else m) for m in models}
+    # первая модель — та, на которой собран журнал (AGENT_MODEL стенда); остальные — пересчёт по ценам
+    costs = {m: action_costs(calls, cfg, None if m == models[0] else m) for m in models}
     blank = [""] * (2 + len(models))
     rows = [["Цифровой механик: стоимость моделей на парк"] + blank[1:],
             [f"Курс доллара, ₽ за 1 $ → {num(cfg['usd_rub'], 4)}"] + blank[1:], blank,
@@ -153,7 +154,7 @@ def fleet_table(calls: list[dict], cfg: dict, idx_total: float) -> list[list[str
              blank,
              ["Комментарий: интервал проверок и доли статусов — по данным заглушки (50 машин, 195 проверок), "
               "у реального парка доля отклонений, вероятно, ниже — тогда дешевле. Режим «Главный механик» "
-              "считается кодом без модели. Для gpt-6-luna — пересчёт по её ценам на токенах gpt-6.2-sol "
+              f"считается кодом без модели. {', '.join(models[1:]) or '—'}: пересчёт по ценам на токенах {models[0]} "
               "(до замера качества). Сервер и хранение не включены."] + blank[1:]]
     return rows
 

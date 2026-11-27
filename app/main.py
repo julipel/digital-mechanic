@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from app.agent.loop import ChatModel, make_chat_model
 from app.api import Services, build_router
 from app.auth import auth_guard, login_form, login_submit, logout
-from app.config import Settings, get_settings
+from app.config import Settings, check_agent_api, get_settings
 from app.integrations.fleet import get_fleet
 from app.integrations.ml_client import HttpMlClient
 from app.integrations.toir_client import HttpToirClient
@@ -34,6 +34,7 @@ def create_app(settings: Settings | None = None, http_transport: httpx.AsyncBase
     # Ошибка в config/query_expansions.json видна при старте, а не первым поиском механика:
     # иначе поиск по руководствам весь ход отвечал бы «недоступен».
     load_expansions(settings.config_dir)
+    check_agent_api(settings)        # gpt-6* с AGENT_API=chat — понятная ошибка при старте
     app = FastAPI(title="Цифровой механик", version="0.2.0")
     app.state.settings = settings
     app.state.http_transport = http_transport

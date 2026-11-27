@@ -41,8 +41,9 @@ class Settings(BaseSettings):
     # reasoning_effort для Chat Completions; пусто — не передаётся. Некоторые модели принимают
     # инструменты в Chat Completions только с «none» (ответ провайдера 400 подскажет).
     agent_reasoning_effort: str | None = None
-    # chat — Chat Completions (любой OpenAI-совместимый провайдер); responses — Responses API OpenAI.
-    agent_api: Literal["chat", "responses"] = "chat"
+    # responses — Responses API OpenAI (по умолчанию; модели gpt-6* работают только так);
+    # chat — Chat Completions (любой OpenAI-совместимый провайдер, например модель в контуре заказчика).
+    agent_api: Literal["chat", "responses"] = "responses"
     agent_max_tool_rounds: int = 6       # раундов с вызовом инструментов на одно действие механика
     agent_search_k: int = 5              # фрагментов в выдаче search_manual
     agent_chunk_chars: int = 2500        # сколько символов фрагмента видит модель
@@ -107,3 +108,13 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+def check_agent_api(settings: "Settings") -> None:
+    """При старте: модели gpt-6* агент вызывает только через Responses API. С AGENT_API=chat
+    ошибка проявилась бы первым же сообщением механика — лучше не стартовать и сказать, что поправить."""
+    model = (settings.agent_model or "").strip().lower()
+    if model.startswith("gpt-6") and settings.agent_api == "chat":
+        raise ValueError(
+            f"AGENT_MODEL={settings.agent_model} работает только через Responses API, а в .env AGENT_API=chat. "
+            "Поставьте AGENT_API=responses (chat — для других OpenAI-совместимых провайдеров).")

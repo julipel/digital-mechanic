@@ -204,3 +204,17 @@ def test_trend_endpoint_as_of_selected_check(client_for):
     assert client.get("/api/vehicles/B418HK98/trend?session_id=S-0003").status_code == 404   # чужая проверка
     assert client.get("/api/vehicles/b418hk98/trend").status_code == 404
     assert model.calls == []                                                               # без модели
+
+
+def test_gpt6_with_chat_api_fails_at_startup(tmp_path):
+    """gpt-6* работают только через Responses API: с AGENT_API=chat приложение не стартует,
+    в ошибке — что поправить в .env. По умолчанию AGENT_API=responses."""
+    import pytest
+    from app.config import Settings
+    from app.main import create_app
+    base = dict(_env_file=None, db_path=tmp_path / "t.sqlite", app_password="x")
+    assert Settings(**base).agent_api == "responses"
+    with pytest.raises(ValueError, match="AGENT_API=responses"):
+        create_app(Settings(**base, agent_model="gpt-6.2-sol", agent_api="chat"))
+    create_app(Settings(**base, agent_model="gpt-6.2-sol", agent_api="responses"))
+    create_app(Settings(**base, agent_model="other-model", agent_api="chat"))   # другие провайдеры — можно

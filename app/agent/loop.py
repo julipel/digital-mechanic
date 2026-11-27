@@ -171,7 +171,7 @@ class OpenAIResponsesModel:
 
 
 def make_chat_model(settings: Settings) -> ChatModel:
-    """AGENT_API=chat (по умолчанию, любой OpenAI-совместимый провайдер) или responses."""
+    """AGENT_API=responses (по умолчанию, Responses API OpenAI) или chat (любой OpenAI-совместимый провайдер)."""
     return OpenAIResponsesModel(settings) if settings.agent_api == "responses" else OpenAIChatModel(settings)
 
 
