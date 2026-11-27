@@ -315,6 +315,7 @@ async def _search_manual(ctx: ToolContext, args: dict) -> dict:
     ctx.registry.register_all(result.hits)      # фрагмент чужого двигателя → CitationError (не должно быть)
     log_event(s.db_path, "search_results", vehicle_id=vehicle.vehicle_id, session_id=ctx.conv.session_id,
               data={"query": query[:200], "mode": result.mode,
+                    "expanded_by": getattr(result, "expanded_by", []),
                     "hits": [{"doc_id": h.doc_id, "pdf_page": h.pdf_page, "chunk_id": h.chunk_id}
                              for h in result.hits]})
     limit = s.agent_chunk_chars

@@ -8,12 +8,18 @@
   чужого двигателя не может попасть в выдачу даже теоретически.
 - Неизвестное семейство → ValueError, а не «поиск по всем документам».
 
+Перед ранжированием запрос дополняется терминами руководств по словарю
+config/query_expansions.json (разговорное «своим ходом перегнать» → «прекратить эксплуатацию…»):
+механик и модель спрашивают не словами руководства. Расширение детерминированное, только
+дописывает слова к запросу и на фильтр по двигателю не влияет.
+
 Если эмбеддингов нет (модель не настроена или индекс собран без них) или запрос эмбеддинга
 упал — поиск работает только на BM25 и сообщает об этом в `SearchResult.mode`.
 """
 import json
 import re
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
@@ -77,6 +83,7 @@ class SearchResult:
     engine_family: str
     mode: str                         # hybrid | bm25
     hits: list[SearchHit] = field(default_factory=list)
+    expanded_by: list[str] = field(default_factory=list)   # имена сработавших групп словаря
 
 
 class _FamilyIndex:
@@ -148,6 +155,61 @@ def rrf(rankings: list[list[int]], k: int = RRF_K) -> dict[int, float]:
     return scores
 
 
+EXPANSIONS_FILE = "query_expansions.json"
+
+
+@dataclass(frozen=True)
+class _Expansion:
+    name: str
+    triggers: tuple[re.Pattern, ...]
+    add: str
+
+
+def _trigger_pattern(trigger: str) -> re.Pattern:
+    """«своим ход» → слова, начинающиеся с «своим» и «ход», подряд (между ними только пробелы)."""
+    words = trigger.lower().replace("ё", "е").split()
+    if not words:
+        raise ValueError("пустой триггер в словаре расширения запроса")
+    return re.compile(r"(?<![а-яa-z0-9])" + r"\s+".join(re.escape(w) + r"[а-яa-z0-9]*" for w in words))
+
+
+@lru_cache(maxsize=8)
+def load_expansions(config_dir: Path) -> tuple[_Expansion, ...]:
+    """Словарь расширения запроса. Нет файла — расширения нет; любая ошибка формата — ValueError.
+    Читается один раз за процесс: правка словаря вступает в силу после перезапуска.
+    В добавляемых словах запрещены цифры: словарь подсказывает лексику руководств, а не нормативы,
+    номера страниц или обозначения документов."""
+    path = Path(config_dir) / EXPANSIONS_FILE
+    if not path.exists():
+        return ()
+    try:
+        groups = json.loads(path.read_text(encoding="utf-8"))["groups"]
+        result = []
+        for g in groups:
+            name, triggers, add = g["name"], g["triggers"], g["add"]
+            if not (isinstance(name, str) and isinstance(add, str) and add.strip()
+                    and isinstance(triggers, list) and triggers and all(isinstance(t, str) for t in triggers)):
+                raise ValueError(f"группа {name!r}: нужны строки name, add и непустой список triggers")
+            if re.search(r"\d", add):
+                raise ValueError(f"группа {name!r}: в add не должно быть цифр")
+            result.append(_Expansion(name=name, triggers=tuple(_trigger_pattern(t) for t in triggers),
+                                     add=add.strip()))
+    except ValueError as exc:      # JSONDecodeError — тоже ValueError
+        raise ValueError(f"{path}: {exc}") from exc
+    except (KeyError, TypeError) as exc:
+        raise ValueError(f"{path}: неверная структура словаря ({type(exc).__name__}: {exc})") from exc
+    return tuple(result)
+
+
+def expand_query(query: str, expansions: tuple[_Expansion, ...]) -> tuple[str, list[str]]:
+    """Запрос + термины сработавших групп. Исходный текст сохраняется целиком."""
+    normalized = query.lower().replace("ё", "е")
+    applied = [e for e in expansions if any(t.search(normalized) for t in e.triggers)]
+    if not applied:
+        return query, []
+    return " ".join([query, *(e.add for e in applied)]), [e.name for e in applied]
+
+
 _index_cache: dict[Path, tuple[tuple, SearchIndex]] = {}
 _query_vectors: dict[tuple[str, str], np.ndarray] = {}
 
@@ -199,11 +261,12 @@ def search(query: str, engine_family: str, settings: Settings, *, k: int = DEFAU
     if not engine_family:
         raise ValueError("engine_family обязателен: поиск без фильтра по двигателю запрещён")
     index = index or get_index(settings)
-    rankings = [index.bm25_ranking(query, engine_family)]
+    expanded, expanded_by = expand_query(query, load_expansions(settings.config_dir))
+    rankings = [index.bm25_ranking(expanded, engine_family)]
     mode = "bm25"
     if index.embeddings is not None and index.embedding_model == settings.embedding_model:
         try:
-            vector = embed_query(query, settings, scenario=scenario)
+            vector = embed_query(expanded, settings, scenario=scenario)
         except Exception as exc:      # сбой провайдера не роняет поиск — остаётся BM25
             vector = None
             log_event(settings.db_path, "error", vehicle_id=vehicle_id, data={
@@ -226,4 +289,5 @@ def search(query: str, engine_family: str, settings: Settings, *, k: int = DEFAU
             is_fault_table=c["is_fault_table"], source=c["source"], score=round(fused[row], 5),
             bm25_rank=ranks[0].get(row), vector_rank=ranks[1].get(row) if len(ranks) > 1 else None,
         ))
-    return SearchResult(query=query, engine_family=engine_family, mode=mode, hits=hits)
+    return SearchResult(query=query, engine_family=engine_family, mode=mode, hits=hits,
+                        expanded_by=expanded_by)

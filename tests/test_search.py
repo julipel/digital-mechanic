@@ -123,3 +123,59 @@ def test_unknown_family_in_manifest_rejected():
     m = Manual(doc_id="d", manual="M", file="d.pdf", engine_family="yamz-999", kind="РЭ", pages=1)
     with pytest.raises(ValueError):
         check_families_known((m,), {"yamz-236"})
+
+
+# --- расширение запроса словарём config/query_expansions.json ------------------------------------
+
+def test_expansion_catches_word_forms():
+    from app.retrieval.search import expand_query, load_expansions
+    groups = load_expansions(Settings(_env_file=None).config_dir)
+    for q in ("Можно ли своим ходом перегнать машину на базу?", "Перегоню её в гараж?",
+              "Доеду сам до парка?", "Можно ли продолжать движение?", "Вызывать эвакуатор?"):
+        expanded, names = expand_query(q, groups)
+        assert names == ["движение с неисправностью"], q
+        assert expanded.startswith(q) and "прекратить эксплуатацию" in expanded
+
+
+def test_expansion_not_triggered_by_unrelated_words():
+    from app.retrieval.search import expand_query, load_expansions
+    groups = load_expansions(Settings(_env_file=None).config_dir)
+    # «ход поршня», «переход», «недоход» не должны превращать вопрос в «можно ли ехать»
+    for q in ("Какой ход поршня?", "Переход на другое масло", "Зазор клапанов на холодном двигателе"):
+        assert expand_query(q, groups) == (q, []), q
+
+
+def test_expansion_keeps_family_filter_and_original_query(tiny_index, no_llm):
+    result = search("Можно ли своим ходом доехать? давление масла", "fam-b", no_llm, k=10, index=tiny_index)
+    assert result.query == "Можно ли своим ходом доехать? давление масла"
+    assert result.expanded_by == ["движение с неисправностью"]
+    assert {h.engine_family for h in result.hits} == {"fam-b"}
+
+
+def test_missing_or_broken_expansions_file(tmp_path):
+    from app.retrieval.search import load_expansions
+    assert load_expansions(tmp_path) == ()
+    bad = tmp_path / "bad"
+    bad.mkdir()
+    (bad / "query_expansions.json").write_text('{"groups": [{"name": "x", "triggers": [" "], "add": "y"}]}',
+                                               encoding="utf-8")
+    with pytest.raises(ValueError):
+        load_expansions(bad)
+
+
+def test_real_expansions_file_is_valid():
+    from app.retrieval.search import load_expansions
+    groups = load_expansions(Settings(_env_file=None).config_dir)
+    assert groups and all(e.add and e.triggers for e in groups)
+
+
+@pytest.mark.parametrize("content", [
+    "{не json", '{"items": []}', '{"groups": [{"name": "x", "add": "y"}]}',
+    '{"groups": [{"name": "x", "triggers": ["перегн"], "add": 5}]}',
+    '{"groups": [{"name": "x", "triggers": ["перегн"], "add": "давление 111 кПа"}]}',
+])
+def test_broken_expansions_file_gives_value_error(tmp_path, content):
+    from app.retrieval.search import load_expansions
+    (tmp_path / "query_expansions.json").write_text(content, encoding="utf-8")
+    with pytest.raises(ValueError):
+        load_expansions(tmp_path)
