@@ -17,8 +17,9 @@ AI-агент для механика автопарка: получает ре�
   Не переноси код из других моих проектов (Tessera, Pardus-R и т.д.).
 - Репозиторий публичный, история коммитов оценивается. Коммить часто, маленькими
   осмысленными шагами, сообщения на русском: что сделано и зачем.
-- Никогда не коммить: `.env`, ключи, PDF руководств, построенный индекс, `vehicles.json`,
-  если организаторы не разрешили его публиковать.
+- Никогда не коммить: `.env`, ключи, PDF руководств, данные заглушек (`vehicles.json`, архив
+  заглушек), построенный индекс (требование заказчика, п. 9.1). Материалы задачи грузятся по ссылке
+  `MATERIALS_URL` (только в `.env`) скриптом `scripts/fetch_materials.py`.
 - Оценивается последний коммит до 10:00 МСК 28.11. После этого времени не пушить.
 
 ## Жёсткие правила продукта — обеспечиваются кодом, а не промптом
@@ -248,7 +249,8 @@ tests/
 - Запуск без Docker: `scripts/run_local.ps1` / `scripts/run_local.sh`
 - Docker локально: `docker compose -f docker-compose.yml -f docker-compose.local.yml up --build -d`
 - Стенд: `docker compose -f docker-compose.yml -f docker-compose.server.yml up -d --build` в /srv/digital-mechanic.
-  Вне git на сервер копируются отдельно: kb/, index/ (права 700), .env (600), mocks/data/vehicles.json.
+  PDF в kb/ и mocks/data/vehicles.json загружает `python3 scripts/fetch_materials.py` по `MATERIALS_URL`
+  из .env (манифест — config/kb.yaml). Вне git копируются только index/ (права 700) и .env (600).
   SSH — по IP `deploy@85.204.18.44` (ключ хоста в known_hosts записан под IP).
 
 ## Стенд
