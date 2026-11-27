@@ -62,6 +62,26 @@ def _to_landscape(bbox: tuple[float, float, float, float], direction: tuple[int,
     return bbox
 
 
+def _dominant(lines: list[tuple[tuple[int, int], Line]]) -> tuple[int, int]:
+    """Направление, в котором на странице больше всего символов текста."""
+    chars: dict[tuple[int, int], int] = {}
+    for direction, line in lines:
+        chars[direction] = chars.get(direction, 0) + len(line.text)
+    return max(chars, key=chars.get) if chars else HORIZONTAL
+
+
+def upright_rotation(page: pymupdf.Page) -> int:
+    """На сколько градусов повернуть картинку страницы, чтобы преобладающий текст стал горизонтальным
+    (для распознавания сканов vision-моделью): 90 — текст снизу вверх, -90 — сверху вниз, 0 — как есть."""
+    lines = []
+    for block in page.get_text("dict")["blocks"]:
+        for raw in block.get("lines", []):
+            text = "".join(s["text"] for s in raw["spans"]).strip()
+            if text:
+                lines.append(((round(raw["dir"][0]), round(raw["dir"][1])), Line(text, 0, 0, 0, False)))
+    return {(0, -1): 90, (0, 1): -90}.get(_dominant(lines), 0)
+
+
 def _raw_lines(page: pymupdf.Page) -> list[Line]:
     """Строки страницы в порядке чтения, как их отдаёт PyMuPDF (ещё без склейки рядов).
 
@@ -84,10 +104,7 @@ def _raw_lines(page: pymupdf.Page) -> list[Line]:
             bold = all((s["flags"] & 16) or "bold" in s["font"].lower() for s in spans)
             direction = (round(raw["dir"][0]), round(raw["dir"][1]))
             raw_lines.append((direction, Line(text, y0, y1, max(s["size"] for s in spans), bold, x0, x1)))
-    chars: dict[tuple[int, int], int] = {}
-    for direction, line in raw_lines:
-        chars[direction] = chars.get(direction, 0) + len(line.text)
-    dominant = max(chars, key=chars.get) if chars else HORIZONTAL
+    dominant = _dominant(raw_lines)
     if dominant == HORIZONTAL:
         return [line for _, line in raw_lines]
     turned = []

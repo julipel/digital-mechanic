@@ -1,8 +1,11 @@
 """Распознавание страниц-сканов vision-моделью (VISION_MODEL из .env) — один раз при индексации.
 
-Какие страницы — поле scan_pages в манифесте KB_DIR/kb.yaml. Результат кешируется в
+Какие страницы — поле scan_pages в манифесте KB_DIR/kb.yaml: сканы без текста и страницы с испорченным
+текстовым слоем (слова разорваны на куски с повтором букв — 236.01.01 РК). Страница, где текст набран
+поперёк листа, перед отправкой разворачивается. Результат кешируется в
 INDEX_DIR/ocr/{doc_id}/p{NNN}.txt и при следующей сборке индекса попадает во фрагменты
-с source=ocr. Цифры из распознанных таблиц надо сверить с картинкой вручную.
+с source=ocr. Цифры сверяются автоматически по текстовому слою: scripts/check_ocr_digits.py;
+вручную — только расхождения из его отчёта.
 
     python scripts/ocr_scans.py            # распознать то, чего ещё нет в кеше
     python scripts/ocr_scans.py --force    # распознать заново
@@ -20,6 +23,7 @@ import pymupdf  # noqa: E402
 
 from app.config import get_settings  # noqa: E402
 from app.integrations.llm import LLMNotConfigured, get_client  # noqa: E402
+from app.retrieval.extract import upright_rotation  # noqa: E402
 from app.retrieval.manuals import load_manuals  # noqa: E402
 from app.storage.events import log_llm_call  # noqa: E402
 
@@ -53,7 +57,10 @@ def main() -> None:
                 if out.exists() and not args.force:
                     print(f"{manual.doc_id} стр. {n}: уже распознана")
                     continue
-                png = doc[n - 1].get_pixmap(dpi=200).tobytes("png")
+                # таблица поперёк листа (карты дефектации) — картинку разворачиваем, чтобы текст был горизонтален
+                page = doc[n - 1]
+                matrix = pymupdf.Matrix(200 / 72, 200 / 72).prerotate(upright_rotation(page))
+                png = page.get_pixmap(matrix=matrix).tobytes("png")
                 url = "data:image/png;base64," + base64.b64encode(png).decode("ascii")
                 started = time.perf_counter()
                 response = client.chat.completions.create(

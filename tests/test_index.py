@@ -326,3 +326,27 @@ def test_horizontal_page_order_unchanged():
     for i, t in enumerate(["First stand line", "Second stand line"]):
         page.insert_text(pymupdf.Point(72, 100 + 20 * i), t, fontsize=10, fontname="helv")
     assert [l.text for l in _raw_lines(page)] == ["First stand line", "Second stand line"]
+
+
+# --- сверка цифр распознанной страницы --------------------------------------------------------
+
+def test_ocr_numbers_checked_against_broken_text_layer():
+    """Слой разорван («34 ,93», «20,2±0,0 65», «111-22 22333-»), но цифры в нём идут подряд:
+    числа распознанного текста находятся, искажённое число попадает в отчёт. Значения выдуманы."""
+    from app.retrieval.ocr_check import unmatched_numbers
+    layer = "Ось стен да 111-22\n22333- | В\n34 ,93 | 20,2±0,0 65"
+    assert unmatched_numbers("Ось стенда 111-2222333-В | 34,93 | 20,2±0,065", layer) == []
+    assert unmatched_numbers("Ось стенда 111-2222833-В | 34,98", layer) == ["111-2222833", "34,98"]
+    assert unmatched_numbers("Позиция 1 | 2", layer) == []        # однозначные не проверяются
+    # номер разорван строкой соседней колонки; цифра повторена на стыке кусков слоя
+    split_layer = "\n".join(["Ось 111-222 | втулка 7 | 2333-Б2", "твёрдость 169…2 сталь", "212 НВ"])
+    assert unmatched_numbers("111-2222333-Б2 | 1169…212", split_layer.replace("169", "1169")) == []
+    # подменённая цифра не находится, даже если куски номера встречаются на странице по отдельности
+    spread = "Ось 111-2222333 | рисунок 7 | 444-5555666 | 118 к"
+    assert unmatched_numbers("118-2222333", spread) == ["118-2222333"]
+
+
+def test_upright_rotation_for_rotated_table():
+    from app.retrieval.extract import upright_rotation
+    assert upright_rotation(_rotated_table_pdf(90)) == 90
+    assert upright_rotation(_rotated_table_pdf(270)) == -90
