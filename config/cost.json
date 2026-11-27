@@ -1,0 +1,33 @@
+{
+  "_comment": "Для scripts/cost_report.py. Цены — стандартный тариф OpenAI за 1 млн токенов (short context), https://developers.openai.com/api/docs/pricing, сверено 27.11.2026. input — полный вход, cached_input — вход из кеша, output — выход. Курс задан пользователем. Состав сессии проверки двигателя — сколько действий механика каждого сценария.",
+  "currency": "$",
+  "usd_rub": 82.2732,
+  "usd_rub_note": "курс, указанный пользователем как курс ЦБ РФ на 28.11.2026",
+  "prices": {
+    "gpt-6.2-sol": {
+      "input": 2.0,
+      "cached_input": 0.1,
+      "output": 10.0
+    },
+    "gpt-6.2-astra": {
+      "input": 8.0,
+      "cached_input": 0.4,
+      "output": 40.0
+    },
+    "text-embedding-3-large": {
+      "input": 0.13,
+      "cached_input": 0.13,
+      "output": 0.0
+    },
+    "gpt-6-luna": {
+      "input": 0.1,
+      "cached_input": 0.01,
+      "output": 0.5
+    }
+  },
+  "session": {
+    "explain": 1,
+    "question": 2,
+    "ticket": 1
+  }
+}
