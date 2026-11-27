@@ -179,3 +179,10 @@ def test_broken_expansions_file_gives_value_error(tmp_path, content):
     (tmp_path / "query_expansions.json").write_text(content, encoding="utf-8")
     with pytest.raises(ValueError):
         load_expansions(tmp_path)
+
+
+def test_app_does_not_start_with_broken_expansions(tmp_path):
+    from app.main import create_app
+    (tmp_path / "query_expansions.json").write_text("{не json", encoding="utf-8")
+    with pytest.raises(ValueError):
+        create_app(Settings(_env_file=None, config_dir=tmp_path, db_path=tmp_path / "t.sqlite"))

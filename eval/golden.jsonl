@@ -30,3 +30,4 @@
 {"id": "out-01", "vehicle_id": "B418HK98", "engine_family": "yamz-236", "question": "Какое давление должно быть в шинах грузовика?", "expected": "refuse", "note": "вне базы"}
 {"id": "out-02", "vehicle_id": "K354KC98", "engine_family": "yamz-536", "question": "Как заменить лобовое стекло в кабине?", "expected": "refuse", "note": "вне базы"}
 {"id": "out-03", "vehicle_id": "C933KX98", "engine_family": "zmz-409", "question": "Сколько стоит капитальный ремонт двигателя в Москве?", "expected": "refuse", "note": "вне базы"}
+{"id": "out-04", "vehicle_id": "B418HK98", "engine_family": "yamz-236", "question": "Сколько стоит вызвать эвакуатор до базы?", "expected": "refuse", "note": "вне базы, но со словом-триггером расширения запроса «эвакуатор»"}

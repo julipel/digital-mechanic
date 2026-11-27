@@ -113,6 +113,9 @@ def main() -> None:
                 if args.verify:
                     text = "\n".join(recognize(client, settings, page, dpi=300, clip=clip, step="scan_ocr_verify")
                                      for clip in halves(page))
+                elif is_blank(page, page.rect):
+                    text = ""          # пустую страницу в модель не отправляем: на ней она выдумывает текст
+                    print(f"{manual.doc_id} стр. {n}: пустая, не распознаётся")
                 else:
                     text = recognize(client, settings, page, dpi=200, clip=None, step="scan_ocr")
                 out.write_text(text, encoding="utf-8")

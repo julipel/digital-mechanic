@@ -18,7 +18,7 @@ from app.integrations.fleet import get_fleet
 from app.integrations.ml_client import HttpMlClient
 from app.integrations.toir_client import HttpToirClient
 from app.retrieval.pages import RateLimiter
-from app.retrieval.search import search as default_search
+from app.retrieval.search import load_expansions, search as default_search
 from app.storage.events import new_request_id, request_id_var
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
@@ -31,6 +31,9 @@ def create_app(settings: Settings | None = None, http_transport: httpx.AsyncBase
     """Фабрика приложения. В тестах подменяются http_transport (заглушки в процессе),
     модель, поиск и список документов — сеть и LLM не нужны."""
     settings = settings or get_settings()
+    # Ошибка в config/query_expansions.json видна при старте, а не первым поиском механика:
+    # иначе поиск по руководствам весь ход отвечал бы «недоступен».
+    load_expansions(settings.config_dir)
     app = FastAPI(title="Цифровой механик", version="0.2.0")
     app.state.settings = settings
     app.state.http_transport = http_transport
