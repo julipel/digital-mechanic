@@ -284,3 +284,45 @@ def test_ocr_files_outside_scan_pages_are_ignored(tmp_path, monkeypatch):
     assert [p.text for p in pages] == ["стр 1", "текст p002.txt", "стр 3"]
     assert [p.source for p in pages] == ["text", "ocr", "text"]
     assert len(logged) == 3  # извлечение + два пропущенных файла
+
+
+# --- таблица поперёк книжного листа ----------------------------------------------------------
+
+def _rotated_table_pdf(rotate: int) -> pymupdf.Page:
+    """Книжная страница, на которой таблица набрана поперёк листа (как карты дефектации).
+    Строки выдуманы, латиницей: в базовом шрифте PDF нет кириллицы. rotate=90 — текст снизу вверх, 270 — сверху вниз."""
+    doc = pymupdf.open()
+    page = doc.new_page(width=595, height=842)
+    rows = [("Pos", "Defect", "Verdict"), ("1", "Crack of stand body", "Reject"),
+            ("2", "Axle wear 12,34", "Chrome")]
+    for r, cells in enumerate(rows):
+        for c, text in enumerate(cells):
+            if rotate == 90:     # верх альбомного листа — левый край, строки читаются снизу вверх
+                point = pymupdf.Point(100 + 40 * r, 780 - 200 * c)
+            else:                # верх альбомного листа — правый край, строки читаются сверху вниз
+                point = pymupdf.Point(495 - 40 * r, 60 + 200 * c)
+            page.insert_text(point, text, fontsize=10, rotate=rotate, fontname="helv")
+    page.insert_text(pymupdf.Point(540, 820), "146", fontsize=10)   # номер страницы — горизонтально
+    return page
+
+
+@pytest.mark.parametrize("rotate", [90, 270])
+def test_rotated_table_rows_are_read_in_order(rotate):
+    from app.retrieval.extract import _raw_lines
+    page = _rotated_table_pdf(rotate)
+    lines = merge_rows(_raw_lines(page))
+    texts = [l.text for l in lines]
+    assert texts[:3] == ["Pos | Defect | Verdict", "1 | Crack of stand body | Reject",
+                         "2 | Axle wear 12,34 | Chrome"], texts
+    assert texts[-1] == "146"      # строка другого направления — в конце, в своих координатах
+    cleaned = clean_page(_raw_lines(page), 146, page.rect.height, ZMZ)
+    assert "146" not in cleaned.text.splitlines() and "2 | Axle wear 12,34 | Chrome" in cleaned.text
+
+
+def test_horizontal_page_order_unchanged():
+    from app.retrieval.extract import _raw_lines
+    doc = pymupdf.open()
+    page = doc.new_page(width=595, height=842)
+    for i, t in enumerate(["First stand line", "Second stand line"]):
+        page.insert_text(pymupdf.Point(72, 100 + 20 * i), t, fontsize=10, fontname="helv")
+    assert [l.text for l in _raw_lines(page)] == ["First stand line", "Second stand line"]

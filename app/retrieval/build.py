@@ -26,7 +26,7 @@ from app.retrieval.extract import Line, PageText, extract_pdf
 from app.integrations.fleet import load_engine_families
 from app.retrieval.manuals import Manual, check_families_known, load_manuals
 
-EXTRACT_VERSION = 3      # поменять при изменении extract.py — кеш страниц пересоберётся
+EXTRACT_VERSION = 4      # поменять при изменении extract.py — кеш страниц пересоберётся
 EMBED_BATCH = 64
 
 

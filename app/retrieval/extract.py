@@ -47,9 +47,31 @@ class PageText:
         return "\n".join(line.text for line in self.lines)
 
 
+HORIZONTAL = (1, 0)
+
+
+def _to_landscape(bbox: tuple[float, float, float, float], direction: tuple[int, int],
+                  width: float, height: float) -> tuple[float, float, float, float]:
+    """bbox строки повёрнутого текста → координаты альбомного листа, в котором этот текст
+    горизонтален: x — вдоль строки, y — сверху вниз по строкам."""
+    x0, y0, x1, y1 = bbox
+    if direction == (0, -1):          # текст снизу вверх: верх альбомного листа — левый край
+        return height - y1, x0, height - y0, x1
+    if direction == (0, 1):           # текст сверху вниз: верх альбомного листа — правый край
+        return y0, width - x1, y1, width - x0
+    return bbox
+
+
 def _raw_lines(page: pymupdf.Page) -> list[Line]:
-    """Строки страницы в порядке чтения, как их отдаёт PyMuPDF (ещё без склейки рядов)."""
-    lines: list[Line] = []
+    """Строки страницы в порядке чтения, как их отдаёт PyMuPDF (ещё без склейки рядов).
+
+    Таблица, набранная поперёк книжного листа (карты дефектации 236.01.01 РК), даёт строки
+    с направлением (0, ∓1); в координатах книжного листа их порядок и склейка рядов теряются
+    («Деф», «ектоскоп»). Если такого текста на странице больше, чем горизонтального, его координаты
+    переводятся в альбомный лист и строки упорядочиваются там. Строки других направлений
+    (напечатанный номер страницы) остаются в своих координатах и идут после — их вырезает clean_page.
+    Сам текст строк не меняется."""
+    raw_lines: list[tuple[tuple[int, int], Line]] = []
     for block in page.get_text("dict", sort=True)["blocks"]:
         if block.get("type") != 0:
             continue
@@ -60,8 +82,33 @@ def _raw_lines(page: pymupdf.Page) -> list[Line]:
             text = _SPACES.sub(" ", "".join(s["text"] for s in raw["spans"])).strip()
             x0, y0, x1, y1 = raw["bbox"]
             bold = all((s["flags"] & 16) or "bold" in s["font"].lower() for s in spans)
-            lines.append(Line(text, y0, y1, max(s["size"] for s in spans), bold, x0, x1))
-    return lines
+            direction = (round(raw["dir"][0]), round(raw["dir"][1]))
+            raw_lines.append((direction, Line(text, y0, y1, max(s["size"] for s in spans), bold, x0, x1)))
+    chars: dict[tuple[int, int], int] = {}
+    for direction, line in raw_lines:
+        chars[direction] = chars.get(direction, 0) + len(line.text)
+    dominant = max(chars, key=chars.get) if chars else HORIZONTAL
+    if dominant == HORIZONTAL:
+        return [line for _, line in raw_lines]
+    turned = []
+    for direction, line in raw_lines:
+        if direction != dominant:
+            continue
+        x0, y0, x1, y1 = _to_landscape((line.x0, line.y0, line.x1, line.y1), dominant,
+                                       page.rect.width, page.rect.height)
+        turned.append(Line(line.text, y0, y1, line.size, line.bold, x0, x1))
+    return _reading_order(turned) + [line for direction, line in raw_lines if direction != dominant]
+
+
+def _reading_order(lines: list[Line], tolerance: float = 2.0) -> list[Line]:
+    """Ряды сверху вниз (строки с y0 в пределах tolerance — один ряд), в ряду — слева направо."""
+    rows: list[list[Line]] = []
+    for line in sorted(lines, key=lambda l: l.y0):
+        if rows and line.y0 - rows[-1][0].y0 < tolerance:
+            rows[-1].append(line)
+        else:
+            rows.append([line])
+    return [line for row in rows for line in sorted(row, key=lambda l: l.x0)]
 
 
 def merge_rows(lines: list[Line]) -> list[Line]:
